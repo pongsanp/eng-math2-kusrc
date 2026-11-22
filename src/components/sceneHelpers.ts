@@ -11,18 +11,19 @@ export function makeTextSprite(
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   const fontSize = 44;
-  ctx.font = `700 ${fontSize}px Inter, "IBM Plex Sans Thai", sans-serif`;
+  ctx.font = `700 ${fontSize}px Inter, "IBM Plex Sans Thai", "Sarabun", sans-serif`;
   const textWidth = ctx.measureText(text).width;
-  const padX = bgColor ? 22 : 10;
-  const padY = bgColor ? 14 : 8;
+  const isHalo = !bgColor || bgColor === 'halo' || bgColor === 'halo-dark';
+  const padX = isHalo ? 14 : 22;
+  const padY = isHalo ? 10 : 14;
   canvas.width = Math.max(64, Math.ceil(textWidth + padX * 2));
   canvas.height = Math.ceil(fontSize + padY * 2);
 
-  ctx.font = `700 ${fontSize}px Inter, "IBM Plex Sans Thai", sans-serif`;
+  ctx.font = `700 ${fontSize}px Inter, "IBM Plex Sans Thai", "Sarabun", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  if (bgColor) {
+  if (bgColor && !isHalo) {
     ctx.fillStyle = bgColor;
     const r = 14;
     const w = canvas.width;
@@ -39,6 +40,14 @@ export function makeTextSprite(
     ctx.quadraticCurveTo(0, 0, r, 0);
     ctx.closePath();
     ctx.fill();
+  }
+
+  if (isHalo) {
+    ctx.strokeStyle =
+      bgColor === 'halo-dark' ? 'rgba(15,23,42,0.92)' : 'rgba(248,250,252,0.95)';
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(text, canvas.width / 2, canvas.height / 2 + 2);
   }
 
   ctx.fillStyle = color;
@@ -128,7 +137,7 @@ export function addLabeledSphere(
     const sp = makeTextSprite(
       label,
       color,
-      darkMode ? 'rgba(15,23,42,0.84)' : 'rgba(255,255,255,0.92)',
+      darkMode ? 'halo-dark' : 'halo',
       0.5,
     );
     sp.position.copy(pos3).add(new THREE.Vector3(0, labelOffsetY, 0));
@@ -200,13 +209,24 @@ export function addSolidVectorArrow(
     const sp = makeTextSprite(
       label,
       color,
-      darkMode ? 'rgba(15,23,42,0.82)' : 'rgba(255,255,255,0.9)',
+      darkMode ? 'halo-dark' : 'halo',
       opts.labelScale ?? 0.52,
     );
-    if (opts.labelMidpoint) {
-      sp.position.copy(o3).addScaledVector(uDir, len * 0.55).add(new THREE.Vector3(0, 0.28, 0));
+    if (opts.labelMidpoint === false) {
+      sp.position.copy(e3).addScaledVector(uDir, 0.34);
     } else {
-      sp.position.copy(e3).addScaledVector(uDir, 0.32);
+      const ref =
+        Math.abs(uDir.y) < 0.88 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+      const side = new THREE.Vector3().crossVectors(uDir, ref);
+      if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+      side.normalize();
+      const orthoUp = new THREE.Vector3().crossVectors(side, uDir).normalize();
+      const offsetDist = Math.min(0.36, Math.max(0.24, len * 0.16));
+      sp.position
+        .copy(o3)
+        .addScaledVector(uDir, len * 0.52)
+        .addScaledVector(orthoUp, offsetDist)
+        .addScaledVector(side, 0.14);
     }
     group.add(sp);
   }

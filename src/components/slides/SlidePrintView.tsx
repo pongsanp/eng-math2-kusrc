@@ -10,7 +10,131 @@ interface SlidePrintViewProps {
   printScope: PrintScope;
 }
 
+function SvgHaloText({
+  x,
+  y,
+  fill,
+  children,
+  fontSize = 10,
+  haloColor = '#f8fafc',
+  textAnchor = 'middle',
+  dominantBaseline = 'central',
+}: {
+  x: number;
+  y: number;
+  fill: string;
+  children: string;
+  fontSize?: number;
+  haloColor?: string;
+  textAnchor?: 'start' | 'middle' | 'end';
+  dominantBaseline?: 'auto' | 'central' | 'middle';
+}) {
+  return (
+    <text
+      x={x}
+      y={y}
+      fontSize={fontSize}
+      fontWeight="bold"
+      fill={fill}
+      textAnchor={textAnchor}
+      dominantBaseline={dominantBaseline}
+      stroke={haloColor}
+      strokeWidth={3.5}
+      strokeLinejoin="round"
+      paintOrder="stroke"
+    >
+      {children}
+    </text>
+  );
+}
+
+function renderSvgArrow(
+  p1: [number, number],
+  p2: [number, number],
+  color: string,
+  key: string,
+  options: {
+    opacity?: number;
+    strokeWidth?: number;
+    dashed?: boolean;
+    label?: string;
+    labelAtTip?: boolean;
+    labelDist?: number;
+    fontSize?: number;
+    bounds?: { minX: number; maxX: number; minY: number; maxY: number };
+  } = {},
+) {
+  const {
+    opacity = 1,
+    strokeWidth = 2.3,
+    dashed = false,
+    label,
+    labelAtTip = false,
+    labelDist = 11,
+    fontSize = 10,
+    bounds = { minX: 14, maxX: 244, minY: 12, maxY: 178 },
+  } = options;
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  const len = Math.hypot(dx, dy);
+  if (!Number.isFinite(len) || len < 1) {
+    return <circle key={key} cx={p1[0]} cy={p1[1]} r="3" fill={color} opacity={opacity} />;
+  }
+  const ux = dx / len;
+  const uy = dy / len;
+  const hl = Math.min(7, Math.max(4.5, len * 0.34));
+  const hw = hl * 0.52;
+  const bx = p2[0] - ux * hl;
+  const by = p2[1] - uy * hl;
+
+  let lx = (p1[0] + p2[0]) / 2;
+  let ly = (p1[1] + p2[1]) / 2;
+  if (labelAtTip) {
+    lx = p2[0] + ux * labelDist;
+    ly = p2[1] + uy * labelDist;
+  } else {
+    // Perpendicular unit normal biased upward-sideways so label sits beside shaft without obscuring it
+    let nx = -uy;
+    let ny = ux;
+    if (ny > 0.35 || (Math.abs(ny) <= 0.35 && nx < 0)) {
+      nx = -nx;
+      ny = -ny;
+    }
+    lx += nx * labelDist;
+    ly += ny * labelDist;
+  }
+  lx = Math.max(bounds.minX, Math.min(bounds.maxX, lx));
+  ly = Math.max(bounds.minY, Math.min(bounds.maxY, ly));
+
+  return (
+    <g key={key} opacity={opacity}>
+      <line
+        x1={p1[0]}
+        y1={p1[1]}
+        x2={bx}
+        y2={by}
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeDasharray={dashed ? '4 2' : undefined}
+      />
+      <polygon
+        points={`${p2[0]},${p2[1]} ${bx - uy * hw},${by + ux * hw} ${bx + uy * hw},${by - ux * hw}`}
+        fill={color}
+      />
+      {label && (
+        <SvgHaloText x={lx} y={ly} fill={color} fontSize={fontSize}>
+          {label}
+        </SvgHaloText>
+      )}
+    </g>
+  );
+}
+
 function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
+  const ox = 100;
+  const oy = 115;
+  const axBounds = { minX: 14, maxX: 226, minY: 12, maxY: 178 };
+
   return (
     <div className="h-full flex flex-col justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-sm font-bold text-slate-600 flex items-center justify-between">
@@ -18,66 +142,92 @@ function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
         <span className="font-mono text-xs text-sky-700">pongsanp.github.io/eng-math2-kusrc</span>
       </div>
       <svg viewBox="0 0 240 190" className="w-full flex-1 my-2">
-        <defs>
-          <marker id="arr-sky" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <polygon points="0 0, 7 3.5, 0 7" fill="#0284c7" />
-          </marker>
-          <marker id="arr-em" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <polygon points="0 0, 7 3.5, 0 7" fill="#059669" />
-          </marker>
-          <marker id="arr-am" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <polygon points="0 0, 7 3.5, 0 7" fill="#d97706" />
-          </marker>
-          <marker id="arr-rose" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-            <polygon points="0 0, 7 3.5, 0 7" fill="#e11d48" />
-          </marker>
-        </defs>
-        {/* Base 3D Axes */}
-        <line x1="100" y1="115" x2="45" y2="155" stroke="#ef4444" strokeWidth="1.5" />
-        <line x1="100" y1="115" x2="205" y2="115" stroke="#10b981" strokeWidth="1.5" />
-        <line x1="100" y1="115" x2="100" y2="25" stroke="#3b82f6" strokeWidth="1.5" />
-        <text x="36" y="164" fontSize="11" fontWeight="bold" fill="#ef4444">x</text>
-        <text x="210" y="119" fontSize="11" fontWeight="bold" fill="#10b981">y</text>
-        <text x="96" y="18" fontSize="11" fontWeight="bold" fill="#3b82f6">z</text>
+        {/* Consistent 3D Axes with clear arrowheads & clear halo labels past arrow tips */}
+        {renderSvgArrow([ox, oy], [48, 152], '#ef4444', 'ax-x', {
+          strokeWidth: 1.5,
+          label: 'x',
+          labelAtTip: true,
+          labelDist: 10,
+          fontSize: 11,
+          bounds: axBounds,
+        })}
+        {renderSvgArrow([ox, oy], [202, 115], '#10b981', 'ax-y', {
+          strokeWidth: 1.5,
+          label: 'y',
+          labelAtTip: true,
+          labelDist: 10,
+          fontSize: 11,
+          bounds: axBounds,
+        })}
+        {renderSvgArrow([ox, oy], [100, 26], '#3b82f6', 'ax-z', {
+          strokeWidth: 1.5,
+          label: 'z',
+          labelAtTip: true,
+          labelDist: 10,
+          fontSize: 11,
+          bounds: axBounds,
+        })}
 
         {kind === 'plot_point' && (
           <g>
             <polyline points="100,115 72,135 160,135 160,60" fill="none" stroke="#0284c7" strokeWidth="2.5" />
             <rect x="72" y="60" width="88" height="75" fill="none" stroke="#94a3b8" strokeDasharray="3 3" />
-            <circle cx="160" cy="60" r="5" fill="#f59e0b" />
-            <text x="166" y="56" fontSize="11" fontWeight="bold" fill="#b45309">P(x, y, z)</text>
+            <circle cx="160" cy="60" r="4.5" fill="#f59e0b" />
+            <SvgHaloText x={166} y={50} fill="#b45309" fontSize={11} textAnchor="start">
+              P(x, y, z)
+            </SvgHaloText>
           </g>
         )}
 
         {kind === 'arithmetic' && (
           <g>
-            <line x1="100" y1="115" x2="145" y2="85" stroke="#0284c7" strokeWidth="2.5" markerEnd="url(#arr-sky)" />
-            <line x1="145" y1="85" x2="190" y2="105" stroke="#059669" strokeWidth="2.2" strokeDasharray="4 2" markerEnd="url(#arr-em)" />
-            <line x1="100" y1="115" x2="190" y2="105" stroke="#d97706" strokeWidth="2.8" markerEnd="url(#arr-am)" />
-            <text x="116" y="92" fontSize="11" fontWeight="bold" fill="#0284c7">u</text>
-            <text x="172" y="88" fontSize="11" fontWeight="bold" fill="#059669">v</text>
-            <text x="148" y="124" fontSize="11" fontWeight="bold" fill="#d97706">u + v</text>
+            {renderSvgArrow([ox, oy], [145, 85], '#0284c7', 'st-u', { strokeWidth: 2.5, label: 'u', bounds: axBounds })}
+            {renderSvgArrow([145, 85], [190, 105], '#059669', 'st-v', {
+              strokeWidth: 2.2,
+              dashed: true,
+              label: 'v',
+              bounds: axBounds,
+            })}
+            {renderSvgArrow([ox, oy], [190, 105], '#d97706', 'st-uv', {
+              strokeWidth: 2.8,
+              label: 'u + v',
+              labelDist: 13,
+              bounds: axBounds,
+            })}
           </g>
         )}
 
         {(kind === 'dir_angles' || kind === 'projection') && (
           <g>
-            <line x1="100" y1="115" x2="165" y2="55" stroke="#0284c7" strokeWidth="2.6" markerEnd="url(#arr-sky)" />
-            <line x1="100" y1="115" x2="195" y2="115" stroke="#059669" strokeWidth="2.2" markerEnd="url(#arr-em)" />
+            {renderSvgArrow([ox, oy], [165, 55], '#0284c7', 'st-pu', { strokeWidth: 2.6, label: 'u', bounds: axBounds })}
+            {renderSvgArrow([ox, oy], [195, 115], '#059669', 'st-pv', {
+              strokeWidth: 2.2,
+              label: 'v',
+              labelAtTip: true,
+              labelDist: 9,
+              bounds: axBounds,
+            })}
             <line x1="165" y1="55" x2="165" y2="115" stroke="#e11d48" strokeWidth="1.6" strokeDasharray="3 3" />
-            <line x1="100" y1="115" x2="165" y2="115" stroke="#d97706" strokeWidth="3" markerEnd="url(#arr-am)" />
-            <text x="130" y="75" fontSize="11" fontWeight="bold" fill="#0284c7">u</text>
-            <text x="132" y="132" fontSize="10" fontWeight="bold" fill="#d97706">Proj_v(u)</text>
+            {renderSvgArrow([ox, oy], [165, 115], '#d97706', 'st-proj', {
+              strokeWidth: 3,
+              label: 'Proj_v(u)',
+              labelDist: 14,
+              bounds: axBounds,
+            })}
           </g>
         )}
 
         {kind === 'cross' && (
           <g>
             <polygon points="100,115 155,140 205,115 150,90" fill="rgba(6,182,212,0.18)" stroke="#0891b2" strokeDasharray="3 2" />
-            <line x1="100" y1="115" x2="155" y2="140" stroke="#0284c7" strokeWidth="2.5" markerEnd="url(#arr-sky)" />
-            <line x1="100" y1="115" x2="150" y2="90" stroke="#059669" strokeWidth="2.5" markerEnd="url(#arr-em)" />
-            <line x1="100" y1="115" x2="100" y2="40" stroke="#e11d48" strokeWidth="3" markerEnd="url(#arr-rose)" />
-            <text x="108" y="45" fontSize="11" fontWeight="bold" fill="#e11d48">u × v</text>
+            {renderSvgArrow([ox, oy], [155, 140], '#0284c7', 'st-cu', { strokeWidth: 2.5, label: 'u', bounds: axBounds })}
+            {renderSvgArrow([ox, oy], [150, 90], '#059669', 'st-cv', { strokeWidth: 2.5, label: 'v', bounds: axBounds })}
+            {renderSvgArrow([ox, oy], [100, 40], '#e11d48', 'st-cx', {
+              strokeWidth: 3,
+              label: 'u × v',
+              labelDist: 16,
+              bounds: axBounds,
+            })}
           </g>
         )}
 
@@ -85,10 +235,12 @@ function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
           <g>
             <polygon points="100,115 155,135 190,110 135,90" fill="rgba(139,92,246,0.12)" stroke="#7c3aed" strokeDasharray="3 2" />
             <polygon points="112,55 167,75 202,50 147,30" fill="rgba(139,92,246,0.16)" stroke="#7c3aed" strokeDasharray="3 2" />
-            <line x1="100" y1="115" x2="112" y2="55" stroke="#d97706" strokeWidth="2.5" markerEnd="url(#arr-am)" />
-            <line x1="100" y1="115" x2="155" y2="135" stroke="#0284c7" strokeWidth="2.5" markerEnd="url(#arr-sky)" />
-            <line x1="100" y1="115" x2="135" y2="90" stroke="#059669" strokeWidth="2.5" markerEnd="url(#arr-em)" />
-            <text x="155" y="148" fontSize="10" fontWeight="bold" fill="#6d28d9">V = |u · (v × w)|</text>
+            {renderSvgArrow([ox, oy], [112, 55], '#d97706', 'st-tw', { strokeWidth: 2.5, label: 'w', bounds: axBounds })}
+            {renderSvgArrow([ox, oy], [155, 135], '#0284c7', 'st-tu', { strokeWidth: 2.5, label: 'u', bounds: axBounds })}
+            {renderSvgArrow([ox, oy], [135, 90], '#059669', 'st-tv', { strokeWidth: 2.5, label: 'v', bounds: axBounds })}
+            <SvgHaloText x={174} y={154} fill="#6d28d9" fontSize={10}>
+              V = |u · (v × w)|
+            </SvgHaloText>
           </g>
         )}
 
@@ -99,8 +251,12 @@ function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
             <circle cx="165" cy="59" r="5" fill="#d97706" />
             <line x1="100" y1="115" x2="110" y2="75" stroke="#6366f1" strokeWidth="1.8" />
             <line x1="100" y1="115" x2="165" y2="59" stroke="#d97706" strokeWidth="1.8" strokeDasharray="3 2" />
-            <text x="102" y="65" fontSize="10" fontWeight="bold" fill="#0284c7">P₀</text>
-            <text x="165" y="48" fontSize="10" fontWeight="bold" fill="#b45309">P(t)</text>
+            <SvgHaloText x={108} y={63} fill="#0284c7" fontSize={10}>
+              P₀
+            </SvgHaloText>
+            <SvgHaloText x={170} y={46} fill="#b45309" fontSize={10}>
+              P(t)
+            </SvgHaloText>
           </g>
         )}
       </svg>
@@ -168,49 +324,13 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
     return { ...item, o, v, tip, p1: proj(o), p2: proj(tip) };
   });
 
-  const renderArrow = (
-    p1: [number, number],
-    p2: [number, number],
-    color: string,
-    key: string,
-    opacity = 1,
-    label?: string,
-  ) => {
-    const dx = p2[0] - p1[0];
-    const dy = p2[1] - p1[1];
-    const len = Math.hypot(dx, dy);
-    if (!Number.isFinite(len) || len < 1) {
-      return <circle key={key} cx={p1[0]} cy={p1[1]} r="3" fill={color} opacity={opacity} />;
-    }
-    const ux = dx / len;
-    const uy = dy / len;
-    const hl = Math.min(7, len * 0.36);
-    const hw = hl * 0.52;
-    const bx = p2[0] - ux * hl;
-    const by = p2[1] - uy * hl;
-    const [lx, ly] = clampLabel(p2[0] + ux * 6, p2[1] + uy * 6 - 3);
-    return (
-      <g key={key} opacity={opacity}>
-        <line x1={p1[0]} y1={p1[1]} x2={bx} y2={by} stroke={color} strokeWidth="2.3" />
-        <polygon
-          points={`${p2[0]},${p2[1]} ${bx - uy * hw},${by + ux * hw} ${bx + uy * hw},${by - ux * hw}`}
-          fill={color}
-        />
-        {label && (
-          <text x={lx} y={ly} fontSize="10" fontWeight="bold" fill={color}>
-            {label}
-          </text>
-        )}
-      </g>
-    );
-  };
-
-  const axX = proj([3.8, 0, 0]);
-  const axY = proj([0, 3.8, 0]);
-  const axZ = proj([0, 0, 3.8]);
-  const axNegX = proj([-2.2, 0, 0]);
-  const axNegY = proj([0, -2.2, 0]);
-  const axNegZ = proj([0, 0, -2.2]);
+  const axX = proj([3.4, 0, 0]);
+  const axY = proj([0, 3.4, 0]);
+  const axZ = proj([0, 0, 3.4]);
+  const axNegX = proj([-2.1, 0, 0]);
+  const axNegY = proj([0, -2.1, 0]);
+  const axNegZ = proj([0, 0, -2.1]);
+  const exBounds = { minX: 16, maxX: 244, minY: 12, maxY: 178 };
 
   const parallelepipedFaces = (() => {
     if (!scene.showParallelepiped || scaledVecs.length < 3) return null;
@@ -293,9 +413,9 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
           stroke="#d97706"
           strokeWidth="1.2"
         />
-        <text x={mid[0] + 2} y={mid[1] - 3} fontSize="10" fontWeight="bold" fill="#b45309">
+        <SvgHaloText x={mid[0] + 4} y={mid[1] - 5} fill="#b45309" fontSize={10}>
           {scene.angleLabel ?? 'θ'}
-        </text>
+        </SvgHaloText>
       </g>
     );
   })();
@@ -331,13 +451,28 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
         <line x1={ox} y1={oy} x2={axNegY[0]} y2={axNegY[1]} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="2 2" />
         <line x1={ox} y1={oy} x2={axNegZ[0]} y2={axNegZ[1]} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="2 2" />
 
-        {/* Positive axes */}
-        <line x1={ox} y1={oy} x2={axX[0]} y2={axX[1]} stroke="#fca5a5" strokeWidth="1.3" />
-        <line x1={ox} y1={oy} x2={axY[0]} y2={axY[1]} stroke="#6ee7b7" strokeWidth="1.3" />
-        <line x1={ox} y1={oy} x2={axZ[0]} y2={axZ[1]} stroke="#93c5fd" strokeWidth="1.3" />
-        <text x={axX[0] - 10} y={axX[1] + 9} fontSize="10" fontWeight="bold" fill="#e11d48">+x</text>
-        <text x={axY[0] + 3} y={axY[1] + 4} fontSize="10" fontWeight="bold" fill="#059669">+y</text>
-        <text x={axZ[0] - 4} y={Math.max(11, axZ[1] - 4)} fontSize="10" fontWeight="bold" fill="#0284c7">+z</text>
+        {/* Positive axes with crisp arrowheads & clear x, y, z labels past arrow tips */}
+        {renderSvgArrow([ox, oy], axX, '#ef4444', 'ex-ax-x', {
+          strokeWidth: 1.4,
+          label: 'x',
+          labelAtTip: true,
+          labelDist: 10,
+          bounds: exBounds,
+        })}
+        {renderSvgArrow([ox, oy], axY, '#10b981', 'ex-ax-y', {
+          strokeWidth: 1.4,
+          label: 'y',
+          labelAtTip: true,
+          labelDist: 10,
+          bounds: exBounds,
+        })}
+        {renderSvgArrow([ox, oy], axZ, '#3b82f6', 'ex-ax-z', {
+          strokeWidth: 1.4,
+          label: 'z',
+          labelAtTip: true,
+          labelDist: 10,
+          bounds: exBounds,
+        })}
 
         {tri && (
           <polygon
@@ -360,34 +495,49 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
           const pa = proj([p0[0] - span * u[0], p0[1] - span * u[1], p0[2] - span * u[2]]);
           const pb = proj([p0[0] + span * u[0], p0[1] + span * u[1], p0[2] + span * u[2]]);
           const pm = proj(p0);
-          const [lx, ly] = clampLabel(pb[0], pb[1] - 4);
+          const ldx = pb[0] - pa[0];
+          const ldy = pb[1] - pa[1];
+          const llen = Math.hypot(ldx, ldy) || 1;
+          let nx = -ldy / llen;
+          let ny = ldx / llen;
+          if (ny > 0) {
+            nx = -nx;
+            ny = -ny;
+          }
+          const [lx, ly] = clampLabel(pb[0] * 0.7 + pm[0] * 0.3 + nx * 10, pb[1] * 0.7 + pm[1] * 0.3 + ny * 10);
           return (
             <g key={`l-${idx}`}>
               <line x1={pa[0]} y1={pa[1]} x2={pb[0]} y2={pb[1]} stroke={l.color} strokeWidth="2" />
               <circle cx={pm[0]} cy={pm[1]} r="3" fill={l.color} />
               {l.label && (
-                <text x={lx} y={ly} fontSize="10" fontWeight="bold" fill={l.color}>
+                <SvgHaloText x={lx} y={ly} fill={l.color} fontSize={10}>
                   {l.label}
-                </text>
+                </SvgHaloText>
               )}
             </g>
           );
         })}
 
         {scaledVecs.map((v, idx) =>
-          renderArrow(v.p1, v.p2, v.color, `v-${idx}`, v.opacity ?? 1, v.label),
+          renderSvgArrow(v.p1, v.p2, v.color, `v-${idx}`, {
+            opacity: v.opacity ?? 1,
+            label: v.label,
+            labelAtTip: false,
+            labelDist: 11,
+            bounds: exBounds,
+          }),
         )}
 
         {pts.map((p, idx) => {
           const pp = proj(sv(p.pos));
-          const [lx, ly] = clampLabel(pp[0] + 5, pp[1] - 4);
+          const [lx, ly] = clampLabel(pp[0] + 6, pp[1] - 9);
           return (
             <g key={`p-${idx}`}>
               <circle cx={pp[0]} cy={pp[1]} r="3.6" fill={p.color} stroke="#ffffff" strokeWidth="1" />
               {p.label && (
-                <text x={lx} y={ly} fontSize="10" fontWeight="bold" fill={p.color}>
+                <SvgHaloText x={lx} y={ly} fill={p.color} fontSize={10}>
                   {p.label}
-                </text>
+                </SvgHaloText>
               )}
             </g>
           );

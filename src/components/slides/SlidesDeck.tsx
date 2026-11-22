@@ -1557,7 +1557,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           return (
                             <div className="flex-1 min-h-0 grid grid-cols-12 gap-3">
                               {writeArea}
-                              <div className="col-span-4 min-h-0">
+                              <div
+                                className={`col-span-4 min-h-0 relative ${
+                                  drawEnabled && toolMode !== 'laser' ? 'z-[25]' : 'z-10'
+                                }`}
+                              >
                                 <MiniScene3D
                                   customScene={ex.scene3D}
                                   hintTh={ex.scene3D.hintTh}
@@ -1648,7 +1652,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     </div>
 
                     {slide.embed3D && (
-                      <div className="col-span-6 sticky top-0 h-[520px]">
+                      <div
+                        className={`col-span-6 sticky top-0 h-[520px] ${
+                          drawEnabled && toolMode !== 'laser' ? 'z-[25]' : 'z-10'
+                        }`}
+                      >
                         <MiniScene3D
                           embed={slide.embed3D}
                           hintTh={slide.embedHintTh}

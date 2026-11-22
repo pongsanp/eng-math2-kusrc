@@ -191,13 +191,14 @@ export function MiniScene3D({
         addSolidVectorArrow(group, o, v, item.color, item.label, false, {
           opacity: item.opacity ?? 1,
           shaftRadius: compact ? 0.056 : 0.048,
-          labelScale: compact ? 0.54 : 0.46,
+          labelScale: compact ? 0.52 : 0.46,
+          labelMidpoint: true,
         });
         return v;
       });
 
       for (const p of pts) {
-        addLabeledSphere(group, sv(p.pos), p.color, p.label, false, 0.12, compact ? 0.5 : 0.42);
+        addLabeledSphere(group, sv(p.pos), p.color, p.label, false, 0.12, compact ? 0.42 : 0.36);
       }
 
       for (const l of lines) {
@@ -210,9 +211,9 @@ export function MiniScene3D({
         addThickCurve(group, [a, b], l.color, 0.032);
         addLabeledSphere(group, p0, l.color, undefined, false, 0.09);
         if (l.label) {
-          const sp = makeTextSprite(l.label, l.color, 'rgba(255,255,255,0.9)', compact ? 0.48 : 0.42);
+          const sp = makeTextSprite(l.label, l.color, 'halo', compact ? 0.48 : 0.42);
           const lp = mathVecToThree([p0[0] + 2.2 * u[0], p0[1] + 2.2 * u[1], p0[2] + 2.2 * u[2]]);
-          sp.position.copy(lp).add(new THREE.Vector3(0, 0.28, 0));
+          sp.position.copy(lp).add(new THREE.Vector3(0.24, 0.28, 0));
           group.add(sp);
         }
       }
