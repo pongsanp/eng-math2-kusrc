@@ -1,0 +1,282 @@
+import type { AxisName, QuadricMode, QuadricsState } from '../../types';
+import { QUADRIC_INFO, QUADRIC_PRESETS } from '../../math/presets';
+import { axisVarNames } from '../../math/coords';
+import { SliderControl } from '../SliderControl';
+
+interface QuadricsPanelProps {
+  state: QuadricsState;
+  onChange: (next: QuadricsState) => void;
+}
+
+const QUADRIC_MODES: QuadricMode[] = [
+  'ellipsoid',
+  'cone',
+  'elliptic_paraboloid',
+  'hyperbolic_paraboloid',
+  'hyperboloid_1',
+  'hyperboloid_2',
+  'morph',
+];
+
+const AXES: AxisName[] = ['x', 'y', 'z'];
+
+export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
+  const update = (patch: Partial<QuadricsState>) => onChange({ ...state, ...patch });
+  const { u, v, w } = axisVarNames(state.symmetryAxis);
+  const info = QUADRIC_INFO[state.mode];
+
+  const isEllipsoid = state.mode === 'ellipsoid';
+  const isParaboloid =
+    state.mode === 'elliptic_paraboloid' || state.mode === 'hyperbolic_paraboloid';
+
+  let morphStatus = '';
+  if (state.mode === 'morph') {
+    if (Math.abs(state.morphD) < 0.04) {
+      morphStatus = 'd = 0 → กรวยวงรี (Elliptic Cone)';
+    } else if (state.morphD > 0) {
+      morphStatus = 'd > 0 → ไฮเพอร์โบลอยด์ 1 ชิ้น (1-Sheet)';
+    } else {
+      morphStatus = 'd < 0 → ไฮเพอร์โบลอยด์ 2 ชิ้น (2-Sheet)';
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Presets */}
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
+          ตัวอย่างประกอบการสอน (Presets)
+        </h3>
+        <div className="flex flex-wrap gap-1.5">
+          {QUADRIC_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => update(p.value)}
+              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+            >
+              {p.label.th}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Mode Selector */}
+      <div>
+        <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
+          ชนิดพื้นผิวกำลังสอง (Quadric Surface Type)
+        </label>
+        <div className="grid grid-cols-1 gap-1.5">
+          {QUADRIC_MODES.map((m) => {
+            const active = state.mode === m;
+            const isMorph = m === 'morph';
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => update({ mode: m })}
+                className={`px-3 py-2 rounded-xl border text-left transition text-xs flex items-center justify-between gap-2 ${
+                  active
+                    ? isMorph
+                      ? 'border-violet-500 bg-violet-50 dark:bg-violet-950/60 text-violet-900 dark:text-violet-100 font-semibold shadow-sm'
+                      : 'border-sky-500 bg-sky-50 dark:bg-sky-950/60 text-sky-900 dark:text-sky-100 font-semibold shadow-sm'
+                    : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                }`}
+              >
+                <span className="truncate">{QUADRIC_INFO[m].name.th}</span>
+                <span className="text-[10px] opacity-75 shrink-0">{QUADRIC_INFO[m].name.en}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Summary Note */}
+      <div className="px-3 py-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs space-y-0.5">
+        <div className="font-semibold text-sky-900 dark:text-sky-200">{info.name.th}</div>
+        <div className="text-[11px] text-sky-800/90 dark:text-sky-300/90 leading-relaxed">
+          {info.summary.th}
+        </div>
+      </div>
+
+      {/* Morph Slider */}
+      {state.mode === 'morph' && (
+        <div className="p-3.5 rounded-2xl border border-violet-300 dark:border-violet-800 bg-violet-50/70 dark:bg-violet-950/40 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-violet-900 dark:text-violet-200">
+              ค่าคงตัว d (Morph Parameter)
+            </span>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-200/70 dark:bg-violet-900 text-violet-900 dark:text-violet-100">
+              {morphStatus}
+            </span>
+          </div>
+          <SliderControl
+            label="ค่า d (ฝั่งขวาของสมการ)"
+            value={state.morphD}
+            min={-2}
+            max={2}
+            step={0.1}
+            accentColor="#8b5cf6"
+            onChange={(morphD) => update({ morphD })}
+          />
+          <div className="flex justify-between gap-1.5 pt-0.5">
+            {[
+              { label: 'd = 1 (1 ชิ้น)', val: 1 },
+              { label: 'd = 0 (กรวย)', val: 0 },
+              { label: 'd = -1 (2 ชิ้น)', val: -1 },
+            ].map((q) => (
+              <button
+                key={q.val}
+                type="button"
+                onClick={() => update({ morphD: q.val })}
+                className="flex-1 py-1 rounded-lg text-[11px] font-semibold border border-violet-300 dark:border-violet-700 bg-white dark:bg-slate-900 hover:bg-violet-100 dark:hover:bg-violet-900/50 text-violet-800 dark:text-violet-200"
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Symmetry Axis */}
+      {!isEllipsoid && (
+        <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+            แกนสมมาตรของพื้นผิว (Symmetry Axis)
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {AXES.map((ax) => (
+              <button
+                key={ax}
+                type="button"
+                onClick={() => update({ symmetryAxis: ax })}
+                className={`py-1.5 rounded-xl border font-semibold text-xs transition ${
+                  state.symmetryAxis === ax
+                    ? 'border-sky-500 bg-sky-600 text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
+                }`}
+              >
+                แกน {ax}
+              </button>
+            ))}
+          </div>
+
+          {isParaboloid && (
+            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-1.5">
+              <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                ทิศทางเปิด / เครื่องหมายสมการ (Sign / Orientation)
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => update({ paraboloidSign: 1 })}
+                  className={`py-1.5 px-2 rounded-xl border font-semibold text-xs transition ${
+                    state.paraboloidSign === 1
+                      ? 'border-sky-500 bg-sky-600 text-white shadow-sm'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
+                  }`}
+                >
+                  +{w} (หงาย / ด้านบวก)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update({ paraboloidSign: -1 })}
+                  className={`py-1.5 px-2 rounded-xl border font-semibold text-xs transition ${
+                    state.paraboloidSign === -1
+                      ? 'border-rose-500 bg-rose-600 text-white shadow-sm'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-rose-400'
+                  }`}
+                >
+                  -{w} (คว่ำ / ด้านลบ)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Parameters a, b, c */}
+      <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+        <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+          พารามิเตอร์สเกล (Scale Parameters)
+        </div>
+        <SliderControl
+          label={isEllipsoid ? 'a (รัศมีแกน x)' : `a (สเกลแกน ${u})`}
+          value={state.a}
+          min={0.5}
+          max={4}
+          step={0.25}
+          onChange={(a) => update({ a })}
+        />
+        <SliderControl
+          label={isEllipsoid ? 'b (รัศมีแกน y)' : `b (สเกลแกน ${v})`}
+          value={state.b}
+          min={0.5}
+          max={4}
+          step={0.25}
+          onChange={(b) => update({ b })}
+        />
+        {!isParaboloid && (
+          <SliderControl
+            label={isEllipsoid ? 'c (รัศมีแกน z)' : `c (สเกลแกน ${w})`}
+            value={state.c}
+            min={0.5}
+            max={4}
+            step={0.25}
+            onChange={(c) => update({ c })}
+          />
+        )}
+      </div>
+
+      {/* Slicing Plane & Traces */}
+      <div className="p-3.5 rounded-2xl border border-amber-300/80 dark:border-amber-800/70 bg-amber-50/60 dark:bg-amber-950/30 space-y-3">
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <div className="text-xs font-bold text-amber-900 dark:text-amber-200">
+              ระนาบตัดและรอยตัด (Slicing Plane & Traces)
+            </div>
+            <div className="text-[11px] text-amber-700 dark:text-amber-300/80">
+              แสดงกราฟรอยตัด 2 มิติคู่กับเส้นตัด 3 มิติ
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.slicingEnabled}
+            onChange={(e) => update({ slicingEnabled: e.target.checked })}
+            className="w-4 h-4 accent-amber-500"
+          />
+        </label>
+
+        {state.slicingEnabled && (
+          <div className="space-y-2.5 pt-1 border-t border-amber-200/70 dark:border-amber-800/50">
+            <div className="grid grid-cols-3 gap-1.5">
+              {AXES.map((ax) => (
+                <button
+                  key={ax}
+                  type="button"
+                  onClick={() => update({ slicePlane: ax })}
+                  className={`py-1.5 rounded-xl border font-semibold text-xs transition ${
+                    state.slicePlane === ax
+                      ? 'border-amber-500 bg-amber-500 text-white shadow-sm'
+                      : 'border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {ax} = k
+                </button>
+              ))}
+            </div>
+            <SliderControl
+              label={`ตำแหน่งระนาบตัด (${state.slicePlane} = k)`}
+              value={state.sliceK}
+              min={-4}
+              max={4}
+              step={0.25}
+              accentColor="#f59e0b"
+              onChange={(sliceK) => update({ sliceK })}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

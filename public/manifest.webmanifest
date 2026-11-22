@@ -1,0 +1,17 @@
+{
+  "name": "01417168 Engineering Math II — 3D Surfaces",
+  "short_name": "Eng Math II 3D",
+  "description": "Interactive 3D Graphs and Quadric Surfaces Dashboard for 01417168 Engineering Mathematics II",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0284c7",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,370 @@
+import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { ArrowLeftRight, RotateCcw } from 'lucide-react';
+import type { SlideEmbed3DKind } from '../../slides/ch1SlidesData';
+import type { Vec3Tuple } from '../../types';
+import { mathVecToThree } from '../../math/coords';
+import { fmtNum } from '../../math/latex';
+import { addAxesSet, disposeObject3D } from '../sceneHelpers';
+import { renderChapter1Scene } from '../sceneCh1';
+
+interface MiniScene3DProps {
+  embed: SlideEmbed3DKind;
+  hintTh?: string;
+}
+
+const DEFAULT_ISO: Vec3Tuple = [8.2, 8.2, 6.2];
+
+export function MiniScene3D({ embed, hintTh }: MiniScene3DProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const contentGroupRef = useRef<THREE.Group | null>(null);
+
+  // Interactive mini-controls tailored per embed
+  const [plotStep, setPlotStep] = useState<1 | 2 | 3>(3);
+  const [plotOctNeg, setPlotOctNeg] = useState(false);
+  const [slideProgress, setSlideProgress] = useState(1);
+  const [arithOp, setArithOp] = useState<'add' | 'sub'>('add');
+  const [projObtuse, setProjObtuse] = useState(false);
+  const [crossFlip, setCrossFlip] = useState(false);
+  const [coplanar, setCoplanar] = useState(false);
+  const [lineT, setLineT] = useState(1);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf8fafc);
+
+    const w = container.clientWidth || 400;
+    const h = container.clientHeight || 300;
+    const camera = new THREE.PerspectiveCamera(42, w / h, 0.1, 150);
+    camera.position.copy(mathVecToThree(DEFAULT_ISO));
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(w, h);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.domElement.style.touchAction = 'none';
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 4;
+    controls.maxDistance = 24;
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+    controls.target.set(0, 0, 0);
+    controls.update();
+    controlsRef.current = controls;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    scene.add(new THREE.HemisphereLight(0xe0f2fe, 0x334155, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(10, 14, 10);
+    scene.add(dir);
+
+    const grid = new THREE.GridHelper(8, 8, 0xcbd5e1, 0xe2e8f0);
+    grid.position.y = -0.002;
+    scene.add(grid);
+
+    const axesGroup = new THREE.Group();
+    addAxesSet(axesGroup, [0, 0, 0], 4.5, 3.8, false, false);
+    scene.add(axesGroup);
+
+    const contentGroup = new THREE.Group();
+    scene.add(contentGroup);
+    contentGroupRef.current = contentGroup;
+
+    let rafId = 0;
+    const animate = () => {
+      rafId = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const nw = Math.max(80, entry.contentRect.width);
+        const nh = Math.max(80, entry.contentRect.height);
+        camera.aspect = nw / nh;
+        camera.updateProjectionMatrix();
+        renderer.setSize(nw, nh);
+      }
+    });
+    ro.observe(container);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+      controls.dispose();
+      disposeObject3D(scene);
+      renderer.dispose();
+      if (renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const group = contentGroupRef.current;
+    if (!group) return;
+    while (group.children.length > 0) {
+      const ch = group.children[0];
+      group.remove(ch);
+      disposeObject3D(ch);
+    }
+
+    const baseInputs = {
+      coordsVec: {
+        subMode: 'single_point' as const,
+        plotStep,
+        showPlaneProjections: true,
+        p1: [0, 0, 0] as Vec3Tuple,
+        p2: (plotOctNeg ? [-2, 3, 2] : [2, 3, 2]) as Vec3Tuple,
+        showCoordBox: true,
+        showPositionVec: false,
+        showUnitVec: false,
+      },
+      arithmetic: {
+        u: [2, 0.5, 1] as Vec3Tuple,
+        v: [0.5, 2.5, 1.5] as Vec3Tuple,
+        scalarK: 1.5,
+        operation: arithOp,
+        slideProgress,
+        showParallelogram: true,
+      },
+      dotProj: {
+        subMode: (embed === 'dir_angles' ? 'dir_angles' : 'dot_proj') as 'dot_proj' | 'dir_angles',
+        u: (projObtuse ? [-1.5, 2, 2] : [2, 3, 2]) as Vec3Tuple,
+        v: [3, 1, 0] as Vec3Tuple,
+        showProjection: true,
+        showAngleArc: true,
+      },
+      crossTriple: {
+        subMode: (embed === 'triple' ? 'triple' : 'cross') as 'cross' | 'triple',
+        u: (embed === 'triple' ? [2, 0, 0] : [2, 1, 0]) as Vec3Tuple,
+        v: (embed === 'triple' ? [0, 2, 0] : [0, 2, 1.5]) as Vec3Tuple,
+        w: (coplanar ? [1.5, 1.5, 0] : [0.5, 0.5, 2.5]) as Vec3Tuple,
+        reverseOrder: crossFlip,
+        showAreaOrVolume: true,
+      },
+      lines3d: {
+        inputMode: 'point_dir' as const,
+        p0: [1, -1, 1] as Vec3Tuple,
+        dir: [1, 2, 0.5] as Vec3Tuple,
+        p2: [2, 2, 2] as Vec3Tuple,
+        t: lineT,
+        isAnimatingT: false,
+        showPositionVectors: true,
+      },
+      darkMode: false,
+    };
+
+    const tabMap: Record<SlideEmbed3DKind, 'coords_vec' | 'arithmetic' | 'dot_proj' | 'cross_triple' | 'lines3d'> = {
+      plot_point: 'coords_vec',
+      arithmetic: 'arithmetic',
+      dir_angles: 'dot_proj',
+      projection: 'dot_proj',
+      cross: 'cross_triple',
+      triple: 'cross_triple',
+      line3d: 'lines3d',
+    };
+
+    renderChapter1Scene(group, {
+      ch1Tab: tabMap[embed],
+      ...baseInputs,
+    });
+  }, [embed, plotStep, plotOctNeg, slideProgress, arithOp, projObtuse, crossFlip, coplanar, lineT]);
+
+  const resetCam = () => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    cameraRef.current.position.copy(mathVecToThree(DEFAULT_ISO));
+    controlsRef.current.target.set(0, 0, 0);
+    controlsRef.current.update();
+  };
+
+  return (
+    <div className="h-full flex flex-col rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner">
+      {/* 3D Canvas */}
+      <div className="relative flex-1 min-h-[210px]">
+        <div
+          ref={containerRef}
+          className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
+        />
+        <button
+          type="button"
+          onClick={resetCam}
+          title="รีเซ็ตมุมกล้อง 3 มิติ"
+          className="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-sky-50 shadow-sm"
+        >
+          <RotateCcw className="w-3.5 h-3.5" /> รีเซ็ตมุม
+        </button>
+        <div className="pointer-events-none absolute top-2 left-2 flex items-center gap-2.5 px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200/80 text-xs sm:text-sm font-bold">
+          <span className="text-rose-600">+x</span>
+          <span className="text-emerald-600">+y</span>
+          <span className="text-sky-600">+z</span>
+        </div>
+      </div>
+
+      {/* Compact Interactive Controls Strip */}
+      <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+        {embed === 'plot_point' && (
+          <div className="flex flex-wrap items-center gap-1.5 w-full justify-between">
+            <div className="flex items-center gap-1">
+              {([1, 2, 3] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setPlotStep(s)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                    plotStep === s
+                      ? 'bg-sky-600 text-white border-sky-600'
+                      : 'bg-slate-50 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  ขั้น {s}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPlotOctNeg((v) => !v)}
+              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700 hover:border-sky-400"
+            >
+              {plotOctNeg ? '(-2,3,2) อัฐภาค II' : '(2,3,2) อัฐภาค I'}
+            </button>
+          </div>
+        )}
+
+        {embed === 'arithmetic' && (
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setArithOp('add')}
+                className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                  arithOp === 'add' ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                u + v
+              </button>
+              <button
+                type="button"
+                onClick={() => setArithOp('sub')}
+                className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                  arithOp === 'sub' ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                u - v
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={slideProgress}
+              onChange={(e) => setSlideProgress(parseFloat(e.target.value))}
+              className="flex-1 h-1.5"
+            />
+            <span className="font-mono text-xs sm:text-sm font-semibold text-slate-600 shrink-0">
+              ต่อหาง {Math.round(slideProgress * 100)}%
+            </span>
+          </div>
+        )}
+
+        {embed === 'projection' && (
+          <div className="flex items-center justify-between w-full gap-2">
+            <span className="text-xs sm:text-sm text-slate-500">ทดลองมุมฉาย:</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setProjObtuse(false)}
+                className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                  !projObtuse ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                มุมแหลม (u·v &gt; 0)
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjObtuse(true)}
+                className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                  projObtuse ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                มุมป้าน (u·v &lt; 0)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {embed === 'cross' && (
+          <div className="flex items-center justify-between w-full gap-2">
+            <span className="text-xs sm:text-sm font-semibold text-rose-700">
+              แสดง: {crossFlip ? 'v × u' : 'u × v'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCrossFlip((f) => !f)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 text-white font-semibold"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              สลับ {crossFlip ? 'v × u → u × v' : 'u × v → v × u'}
+            </button>
+          </div>
+        )}
+
+        {embed === 'triple' && (
+          <div className="flex items-center justify-between w-full gap-2">
+            <span className="text-xs sm:text-sm text-slate-600 font-semibold">
+              {coplanar ? 'ระนาบเดียวกัน (V = 0)' : 'กล่อง 3 มิติ (V = 10)'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCoplanar((c) => !c)}
+              className="px-2.5 py-1 rounded-lg border border-violet-300 bg-violet-50 text-violet-800 font-semibold hover:bg-violet-100"
+            >
+              {coplanar ? 'กลับเป็นกล่อง V ≠ 0' : 'ทดสอบ V = 0 (Coplanar)'}
+            </button>
+          </div>
+        )}
+
+        {embed === 'line3d' && (
+          <div className="flex items-center gap-2 w-full">
+            <span className="font-semibold text-amber-700 shrink-0">t = {fmtNum(lineT)}</span>
+            <input
+              type="range"
+              min={-2}
+              max={2}
+              step={0.1}
+              value={lineT}
+              onChange={(e) => setLineT(parseFloat(e.target.value))}
+              className="flex-1 h-1.5"
+            />
+            <button
+              type="button"
+              onClick={() => setLineT(0)}
+              className="px-2.5 py-0.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-xs sm:text-sm"
+            >
+              t=0 (P₀)
+            </button>
+          </div>
+        )}
+
+        {embed === 'dir_angles' && hintTh && (
+          <div className="text-xs sm:text-sm text-slate-600">{hintTh}</div>
+        )}
+      </div>
+    </div>
+  );
+}
