@@ -21,10 +21,44 @@ export interface SlideSectionCard {
   note?: string;
 }
 
+export interface SlideCustomVector {
+  vec: [number, number, number];
+  origin?: [number, number, number];
+  color: string;
+  label?: string;
+  opacity?: number;
+}
+
+export interface SlideCustomPoint {
+  pos: [number, number, number];
+  color: string;
+  label?: string;
+}
+
+export interface SlideCustomLine {
+  point: [number, number, number];
+  dir: [number, number, number];
+  color: string;
+  label?: string;
+}
+
+export interface SlideExampleScene3D {
+  vectors?: SlideCustomVector[];
+  points?: SlideCustomPoint[];
+  lines?: SlideCustomLine[];
+  triangle?: [[number, number, number], [number, number, number], [number, number, number]];
+  showAngle?: boolean;
+  angleLabel?: string;
+  showRightAngle?: boolean;
+  showParallelepiped?: boolean;
+  hintTh?: string;
+}
+
 export interface SlideExampleItem {
   label?: string;
   promptTh: string;
   promptLatex?: string;
+  scene3D?: SlideExampleScene3D;
 }
 
 export interface SlideDef {
@@ -217,6 +251,18 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         promptTh: 'ให้ $A(1, 2, 3),\\; B(4, -2, 1)$ และ $C(-3, 7, 2)$ จงหาเวกเตอร์ต่อไปนี้',
         promptLatex: '\\overrightarrow{AB},\\quad \\overrightarrow{AC},\\quad \\text{และ}\\quad \\overrightarrow{BA}',
+        scene3D: {
+          points: [
+            { pos: [1, 2, 3], color: '#0f172a', label: 'A' },
+            { pos: [4, -2, 1], color: '#0284c7', label: 'B' },
+            { pos: [-3, 7, 2], color: '#059669', label: 'C' },
+          ],
+          vectors: [
+            { origin: [1, 2, 3], vec: [3, -4, -2], color: '#0284c7', label: 'AB' },
+            { origin: [1, 2, 3], vec: [-4, 5, -1], color: '#059669', label: 'AC' },
+          ],
+          hintTh: 'หมุนดูจุด A, B, C และเวกเตอร์ AB, AC ใน 3 มิติ',
+        },
       },
     ],
   },
@@ -317,10 +363,22 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         label: 'ข้อย่อย 1',
         promptTh: 'ให้ $\\vec{v} = \\langle 2, -2, 1 \\rangle$ จงหา $\\|\\vec{v}\\|$',
+        scene3D: {
+          vectors: [{ vec: [2, -2, 1], color: '#0284c7', label: 'v = ⟨2,-2,1⟩' }],
+          hintTh: 'หมุนดูความยาวของ v = ⟨2, -2, 1⟩ จากจุดกำเนิด',
+        },
       },
       {
         label: 'ข้อย่อย 2',
         promptTh: 'ให้ $\\vec{u} = \\langle 1, -4, 2 \\rangle$ และ $\\vec{v} = \\langle -2, 3, 1 \\rangle$ จงหา $\\|\\vec{u}\\|$ และ $\\|-3\\vec{v}\\|$',
+        scene3D: {
+          vectors: [
+            { vec: [1, -4, 2], color: '#0284c7', label: 'u' },
+            { vec: [-2, 3, 1], color: '#059669', label: 'v' },
+            { vec: [6, -9, -3], color: '#e11d48', label: '-3v', opacity: 0.78 },
+          ],
+          hintTh: 'หมุนเทียบขนาด u, v และ -3v (ย่อสเกลพอดีแกน)',
+        },
       },
     ],
   },
@@ -380,6 +438,14 @@ export const CH1_SLIDES: SlideDef[] = [
     examples: [
       {
         promptTh: 'ให้ $\\vec{u} = \\langle 1, -4, 2 \\rangle$ จงหา (1) เวกเตอร์หนึ่งหน่วยที่มีทิศทางเดียวกับ $\\vec{u}$ และ (2) เวกเตอร์ขนาด $7$ หน่วยที่มีทิศตรงข้ามกับ $\\vec{u}$',
+        scene3D: {
+          vectors: [
+            { vec: [1, -4, 2], color: '#93c5fd', label: 'u = ⟨1,-4,2⟩', opacity: 0.65 },
+            { vec: [0.218, -0.873, 0.436], color: '#1d4ed8', label: 'û' },
+            { vec: [-0.218, 0.873, -0.436], color: '#be123c', label: '-û' },
+          ],
+          hintTh: 'u สีอ่อน (ตัวใหญ่), û น้ำเงินเข้ม, -û แดงเข้ม',
+        },
       },
     ],
   },
@@ -451,10 +517,27 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         label: 'ข้อย่อย 1',
         promptTh: 'ให้ $\\vec{u} = \\langle -1, 2, 1 \\rangle$ และ $\\vec{v} = \\langle -2, 1, -1 \\rangle$ จงหา $\\vec{u}\\cdot\\vec{v}$ และมุม $\\theta$ ระหว่าง $\\vec{u}$ และ $\\vec{v}$',
+        scene3D: {
+          vectors: [
+            { vec: [-1, 2, 1], color: '#0284c7', label: 'u' },
+            { vec: [-2, 1, -1], color: '#059669', label: 'v' },
+          ],
+          showAngle: true,
+          angleLabel: 'θ',
+          hintTh: 'หมุนดูมุม θ ระหว่าง u และ v ใน 3 มิติ',
+        },
       },
       {
         label: 'ข้อย่อย 2',
         promptTh: 'จงแสดงว่าเวกเตอร์ $2\\vec{i} + 2\\vec{j} - \\vec{k}$ ตั้งฉากกับเวกเตอร์ $5\\vec{i} - 4\\vec{j} + 2\\vec{k}$',
+        scene3D: {
+          vectors: [
+            { vec: [2, 2, -1], color: '#0284c7', label: 'a = ⟨2,2,-1⟩' },
+            { vec: [5, -4, 2], color: '#d97706', label: 'b = ⟨5,-4,2⟩' },
+          ],
+          showRightAngle: true,
+          hintTh: 'หมุนเช็กมุมฉาก (90°) ระหว่างเวกเตอร์ทั้งสอง',
+        },
       },
     ],
   },
@@ -529,6 +612,10 @@ export const CH1_SLIDES: SlideDef[] = [
         label: 'ข้อย่อย 1',
         promptTh:
           'จงหาโคไซน์แสดงทิศทาง ($\\cos\\alpha, \\cos\\beta, \\cos\\gamma$) และมุมบอกทิศทางของเวกเตอร์ $\\vec{u} = \\langle 1, \\sqrt{2}, 1 \\rangle$',
+        scene3D: {
+          vectors: [{ vec: [1, 1.4142, 1], color: '#0284c7', label: 'u = ⟨1,√2,1⟩' }],
+          hintTh: 'หมุนดูมุม α, β, γ ของ u กับแกน +x, +y, +z',
+        },
       },
       {
         label: 'แนวข้อสอบ',
@@ -582,6 +669,15 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         promptTh: 'ให้ $\\vec{u} = 2\\vec{i} + 3\\vec{j} - \\vec{k}$ และ $\\vec{v} = -\\vec{i} + \\vec{j} - 2\\vec{k}$ จงหา',
         promptLatex: '\\operatorname{Proj}_{\\vec{v}} \\vec{u} \\quad \\text{และ} \\quad \\operatorname{Proj}_{\\vec{u}} \\vec{v}',
+        scene3D: {
+          vectors: [
+            { vec: [2, 3, -1], color: '#0284c7', label: 'u' },
+            { vec: [-1, 1, -2], color: '#059669', label: 'v' },
+          ],
+          showAngle: true,
+          angleLabel: 'θ',
+          hintTh: 'หมุนดูแนวการฉายระหว่าง u และ v ใน 3 มิติ',
+        },
       },
     ],
   },
@@ -651,6 +747,13 @@ export const CH1_SLIDES: SlideDef[] = [
     examples: [
       {
         promptTh: 'ให้ $\\vec{u} = \\langle 2, -1, 3 \\rangle$ และ $\\vec{v} = \\langle -4, 2, 1 \\rangle$ จงหา $\\vec{u}\\times\\vec{v}$',
+        scene3D: {
+          vectors: [
+            { vec: [2, -1, 3], color: '#0284c7', label: 'u' },
+            { vec: [-4, 2, 1], color: '#059669', label: 'v' },
+          ],
+          hintTh: 'หมุนดูระนาบของ u และ v เพื่อใช้กฎมือขวา',
+        },
       },
     ],
   },
@@ -667,6 +770,15 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         label: 'ข้อย่อย 1',
         promptTh: 'จงหาเวกเตอร์หนึ่งหน่วยทั้งหมดที่ตั้งฉากกับทั้ง $\\vec{u} = \\langle 1, -2, 2 \\rangle$ และ $\\vec{v} = \\langle 2, -1, -2 \\rangle$',
+        scene3D: {
+          vectors: [
+            { vec: [1, -2, 2], color: '#93c5fd', label: 'u', opacity: 0.68 },
+            { vec: [2, -1, -2], color: '#6ee7b7', label: 'v', opacity: 0.68 },
+            { vec: [0.667, 0.667, 0.333], color: '#1d4ed8', label: 'n̂' },
+            { vec: [-0.667, -0.667, -0.333], color: '#be123c', label: '-n̂' },
+          ],
+          hintTh: 'u, v สีอ่อน (ตัวใหญ่) • ±n̂ สีเข้ม (หนึ่งหน่วยตั้งฉาก)',
+        },
       },
       {
         label: 'แนวข้อสอบ',
@@ -727,6 +839,23 @@ export const CH1_SLIDES: SlideDef[] = [
     examples: [
       {
         promptTh: 'ให้จุด $A(2, 2, 0),\\; B(0, 1, 2)$ และ $C(4, 0, 3)$ จงหาพื้นที่ของสามเหลี่ยม $ABC$',
+        scene3D: {
+          points: [
+            { pos: [2, 2, 0], color: '#0f172a', label: 'A' },
+            { pos: [0, 1, 2], color: '#0284c7', label: 'B' },
+            { pos: [4, 0, 3], color: '#059669', label: 'C' },
+          ],
+          vectors: [
+            { origin: [2, 2, 0], vec: [-2, -1, 2], color: '#0284c7', label: 'AB' },
+            { origin: [2, 2, 0], vec: [2, -2, 3], color: '#059669', label: 'AC' },
+          ],
+          triangle: [
+            [2, 2, 0],
+            [0, 1, 2],
+            [4, 0, 3],
+          ],
+          hintTh: 'หมุนดูรูปสามเหลี่ยม ABC และเวกเตอร์ด้านประชิด AB, AC',
+        },
       },
     ],
   },
@@ -793,6 +922,15 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         promptTh: 'ให้ $\\vec{u} = \\langle 2, -1, 3 \\rangle,\\; \\vec{v} = \\langle 3, -2, -5 \\rangle$ และ $\\vec{w} = \\langle -1, 4, -4 \\rangle$ จงหา',
         promptLatex: '\\vec{u}\\cdot(\\vec{v}\\times\\vec{w}) \\quad \\text{และปริมาตรทรงสี่เหลี่ยมด้านขนาน } V = |\\vec{u}\\cdot(\\vec{v}\\times\\vec{w})|',
+        scene3D: {
+          vectors: [
+            { vec: [2, -1, 3], color: '#0284c7', label: 'u' },
+            { vec: [3, -2, -5], color: '#059669', label: 'v' },
+            { vec: [-1, 4, -4], color: '#d97706', label: 'w' },
+          ],
+          showParallelepiped: true,
+          hintTh: 'หมุนดูกล่องทรงสี่เหลี่ยมด้านขนานที่สร้างจาก u, v, w',
+        },
       },
     ],
   },
@@ -865,6 +1003,15 @@ export const CH1_SLIDES: SlideDef[] = [
         promptTh: 'จงหาเวกเตอร์แสดงทิศทางของเส้นตรง $L_1, L_2, L_3$ และ $L_4$ (จัดสัมประสิทธิ์หน้า $x, y, z$ ให้เป็น $+1$ ก่อน)',
         promptLatex:
           '\\begin{aligned} L_1:\\; &\\frac{x-1}{2}=\\frac{y+3}{5}=z-2, &\\qquad L_2:\\; &1-x=\\frac{y-2}{6}=\\frac{z}{2} \\\\[6pt] L_3:\\; &\\frac{x+1}{2}=\\frac{2y-4}{5}=\\frac{2-z}{3}, &\\qquad L_4:\\; &\\frac{x-1}{3}=\\frac{y+3}{5},\\; z=4 \\end{aligned}',
+        scene3D: {
+          lines: [
+            { point: [1, -3, 2], dir: [2, 5, 1], color: '#0284c7', label: 'L₁' },
+            { point: [1, 2, 0], dir: [-1, 6, 2], color: '#059669', label: 'L₂' },
+            { point: [-1, 2, 2], dir: [2, 2.5, -3], color: '#d97706', label: 'L₃' },
+            { point: [1, -3, 4], dir: [3, 5, 0], color: '#e11d48', label: 'L₄' },
+          ],
+          hintTh: 'หมุนดูเส้นตรง L₁–L₄ ในปริภูมิ 3 มิติ (L₄ ขนานระนาบ xy)',
+        },
       },
     ],
   },
@@ -881,10 +1028,24 @@ export const CH1_SLIDES: SlideDef[] = [
       {
         label: 'ข้อ 5',
         promptTh: 'จงหาสมการเส้นตรงที่ผ่านจุด $(2, 1, -4)$ และขนานกับเวกเตอร์ $\\vec{v} = \\langle -3, -7, 5 \\rangle$',
+        scene3D: {
+          points: [{ pos: [2, 1, -4], color: '#0f172a', label: 'P₀(2,1,-4)' }],
+          vectors: [{ vec: [-3, -7, 5], color: '#059669', label: 'v', opacity: 0.78 }],
+          lines: [{ point: [2, 1, -4], dir: [-3, -7, 5], color: '#0284c7', label: 'L' }],
+          hintTh: 'เส้นตรง L (น้ำเงิน) ผ่าน P₀ และขนานกับ v (เขียว)',
+        },
       },
       {
         label: 'ข้อ 6',
         promptTh: 'จงหาสมการเส้นตรงที่ผ่านจุด $P(-2, 1, 6)$ และจุด $Q(1, -1, -8)$',
+        scene3D: {
+          points: [
+            { pos: [-2, 1, 6], color: '#0284c7', label: 'P' },
+            { pos: [1, -1, -8], color: '#e11d48', label: 'Q' },
+          ],
+          lines: [{ point: [-2, 1, 6], dir: [3, -2, -14], color: '#059669', label: 'L(PQ)' }],
+          hintTh: 'หมุนดูเส้นตรงที่ลากผ่านจุด P และ Q ใน 3 มิติ',
+        },
       },
     ],
   },
@@ -902,11 +1063,26 @@ export const CH1_SLIDES: SlideDef[] = [
         label: 'ข้อ 7',
         promptTh: 'จงหาสมการอิงตัวแปรเสริมของเส้นตรงที่ผ่านจุด $(2, 1, -4)$ และขนานกับเส้นตรง $L_1$',
         promptLatex: 'L_1:\\; \\frac{x-1}{4} = \\frac{y+3}{7} = z - 2',
+        scene3D: {
+          points: [{ pos: [2, 1, -4], color: '#0f172a', label: 'P₀' }],
+          lines: [
+            { point: [1, -3, 2], dir: [4, 7, 1], color: '#059669', label: 'L₁' },
+            { point: [2, 1, -4], dir: [4, 7, 1], color: '#0284c7', label: 'L (ขนาน L₁)' },
+          ],
+          hintTh: 'เส้นตรง L (น้ำเงิน) ผ่าน P₀ และขนานกับ L₁ (เขียว)',
+        },
       },
       {
         label: 'ข้อ 8',
         promptTh: 'จงหามุมระหว่างเส้นตรง $L_1$ และ $L_2$ ต่อไปนี้',
         promptLatex: 'L_1:\\; x-2 = \\frac{y+3}{\\sqrt{2}} = z-1 \\qquad \\text{และ} \\qquad L_2:\\; \\frac{x+4}{\\sqrt{2}} = \\frac{z-1}{\\sqrt{2}},\\; y=3',
+        scene3D: {
+          lines: [
+            { point: [2, -3, 1], dir: [1, 1.4142, 1], color: '#0284c7', label: 'L₁' },
+            { point: [-4, 3, 1], dir: [1.4142, 0, 1.4142], color: '#059669', label: 'L₂' },
+          ],
+          hintTh: 'หมุนดูทิศทางของ L₁ และ L₂ เพื่อหามุมระหว่างเส้นตรง',
+        },
       },
     ],
   },

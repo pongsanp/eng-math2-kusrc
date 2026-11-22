@@ -958,12 +958,16 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 }`}
               >
                 {slide.kind === 'example' && slide.examples ? (
-                  <div className="h-full flex flex-col gap-3">
+                  <div
+                    className={`h-full flex flex-col ${
+                      slide.examples.length > 1 ? 'gap-2' : 'gap-3'
+                    }`}
+                  >
                     {slide.examples.map((ex, exIdx) => (
                       <div
                         key={exIdx}
-                        className={`flex-1 flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 ${
-                          slide.examples && slide.examples.length > 1 ? 'p-3.5 gap-2' : 'p-4 gap-2.5'
+                        className={`flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 ${
+                          slide.examples && slide.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-4 gap-2.5'
                         }`}
                       >
                         <div className="space-y-1.5">
@@ -990,19 +994,37 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           )}
                         </div>
 
-                        <div
-                          className={`flex-1 ${
-                            slide.examples && slide.examples.length > 1
-                              ? 'min-h-[100px]'
-                              : 'min-h-[150px]'
-                          } rounded-2xl border border-dashed border-slate-300 bg-white p-3 flex items-end justify-end text-xs text-slate-400`}
-                          style={{
-                            backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
-                            backgroundSize: '20px 20px',
-                          }}
-                        >
-                          เปิด “เขียนบนสไลด์” ด้านบนเพื่อเขียนวิธีทำสดด้วย Apple Pencil
-                        </div>
+                        {(() => {
+                          const writeArea = (
+                            <div
+                              className={`${ex.scene3D ? 'col-span-8 h-full' : 'flex-1'} ${
+                                slide.examples && slide.examples.length > 1
+                                  ? 'min-h-[60px]'
+                                  : 'min-h-[150px]'
+                              } rounded-2xl border border-dashed border-slate-300 bg-white p-3 flex items-end justify-end text-xs text-slate-400`}
+                              style={{
+                                backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
+                                backgroundSize: '20px 20px',
+                              }}
+                            >
+                              เปิด “เขียนบนสไลด์” ด้านบนเพื่อเขียนวิธีทำสดด้วย Apple Pencil
+                            </div>
+                          );
+
+                          if (!ex.scene3D) return writeArea;
+                          return (
+                            <div className="flex-1 min-h-0 grid grid-cols-12 gap-2.5">
+                              {writeArea}
+                              <div className="col-span-4 min-h-0">
+                                <MiniScene3D
+                                  customScene={ex.scene3D}
+                                  hintTh={ex.scene3D.hintTh}
+                                  compact
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
