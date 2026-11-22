@@ -561,11 +561,10 @@ function renderPrintSlide(
   inkDataUrl?: string,
 ) {
   return (
-    <div
-      key={slide.id}
-      className="print-slide-page bg-white text-slate-900 p-5 pb-3 flex flex-col justify-between border border-slate-200"
-    >
-      {/* Slide Stage (matches on-screen overlay stage for 1:1 handwritten ink alignment) */}
+    <div key={slide.id} className="print-slide-page bg-white">
+      <div className="print-slide-slot">
+        <div className="print-slide-inner bg-white text-slate-900 p-5 pb-3 flex flex-col justify-between border border-slate-200">
+          {/* Slide Stage (matches on-screen overlay stage for 1:1 handwritten ink alignment) */}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-200 pb-2.5">
@@ -722,10 +721,12 @@ function renderPrintSlide(
       {/* Footer */}
       <div className="shrink-0 flex items-center justify-between text-xs text-slate-500 border-t border-slate-200 pt-2">
         <span>01417168 คณิตศาสตร์วิศวกรรม II • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์</span>
-        <span>
-          {scopeText} •{' '}
-          {includeInk ? 'ฉบับรวมลายมือประกอบการสอน' : 'ฉบับเว้นที่เขียนประกอบการสอน (GoodNotes)'}
-        </span>
+          <span>
+            {scopeText} •{' '}
+            {includeInk ? 'ฉบับรวมลายมือประกอบการสอน' : 'ฉบับเว้นที่เขียนประกอบการสอน (GoodNotes)'}
+          </span>
+        </div>
+        </div>
       </div>
     </div>
   );

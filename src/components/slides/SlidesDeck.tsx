@@ -918,6 +918,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       ส่งออก {scopedSlides.length} หน้าเป็นช่องตารางจุด 16:9 ยังไม่มีลายมือ
                     </div>
                   </button>
+
+                  <div className="px-2.5 py-2 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] leading-snug text-amber-900">
+                    ตั้งค่าเริ่มต้นเป็นแนวนอน (A4 Landscape) แล้ว — บน iPad/Safari
+                    หากหน้าตัวอย่างขึ้นแนวตั้งสามารถกดสลับเป็นแนวนอนได้
+                    (และแม้ไม่สลับ สไลด์จะย่อพอดีกรอบไม่ตกขอบ)
+                  </div>
                 </div>
               )}
             </div>
