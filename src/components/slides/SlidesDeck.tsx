@@ -566,7 +566,50 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     else goPrev();
   };
 
-  const triggerExportPdf = (withInk: boolean) => {
+  const exitFullscreenBeforePrint = async () => {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      let done = false;
+      let timer = 0;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        document.removeEventListener('fullscreenchange', onChange);
+        document.removeEventListener('webkitfullscreenchange', onChange);
+        window.clearTimeout(timer);
+        // Let iPadOS / browser exit-fullscreen animation settle before opening Print/Share sheet
+        window.setTimeout(resolve, 150);
+      };
+      const onChange = () => {
+        if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
+          finish();
+        }
+      };
+      timer = window.setTimeout(finish, 450);
+      document.addEventListener('fullscreenchange', onChange);
+      document.addEventListener('webkitfullscreenchange', onChange);
+      try {
+        const result = doc.exitFullscreen
+          ? doc.exitFullscreen()
+          : doc.webkitExitFullscreen?.();
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          (result as Promise<void>).catch(() => {
+            finish();
+          });
+        }
+      } catch {
+        finish();
+      }
+    });
+  };
+
+  const triggerExportPdf = async (withInk: boolean) => {
     setExportMenuOpen(false);
     if (withInk) {
       const generated: Record<number, string> = {};
@@ -582,6 +625,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     } else {
       setPrintIncludeInk(false);
     }
+    await exitFullscreenBeforePrint();
     window.requestAnimationFrame(() => {
       window.setTimeout(() => {
         window.print();
@@ -699,7 +743,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               }
               title={
                 navDirection === 'horizontal'
-                  ? 'โหมดปัด/เลื่อนแนวนอน (ปัดขวา = ถัดไป, ปัดซ้าย = ก่อนหน้า) — กดเพื่อสลับเป็นแนวตั้ง'
+                  ? 'โหมดปัด/เลื่อนแนวนอน (ปัดซ้าย = ถัดไป, ปัดขวา = ก่อนหน้า) — กดเพื่อสลับเป็นแนวตั้ง'
                   : 'โหมดปัด/เลื่อนแนวตั้ง (ปัดขึ้น/หมุนลง = ถัดไป) — กดเพื่อสลับเป็นแนวนอน'
               }
               className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[14px] font-bold transition ${
@@ -848,7 +892,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
                   <button
                     type="button"
-                    onClick={() => triggerExportPdf(true)}
+                    onClick={() => void triggerExportPdf(true)}
                     className="w-full text-left px-3 py-2.5 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/80 border border-emerald-200 text-slate-800 transition"
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -866,7 +910,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
                   <button
                     type="button"
-                    onClick={() => triggerExportPdf(false)}
+                    onClick={() => void triggerExportPdf(false)}
                     className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-800 transition"
                   >
                     <div className="font-bold text-slate-800">PDF สไลด์เปล่า (GoodNotes)</div>

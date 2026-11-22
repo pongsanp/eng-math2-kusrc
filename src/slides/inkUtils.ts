@@ -116,7 +116,7 @@ export function resolveSwipeDirection(
 ): 'next' | 'prev' | null {
   if (navDirection === 'horizontal') {
     if (Math.abs(dx) >= minDistance && Math.abs(dx) > Math.abs(dy) * 1.3) {
-      return dx > 0 ? 'next' : 'prev';
+      return dx < 0 ? 'next' : 'prev';
     }
     return null;
   }
