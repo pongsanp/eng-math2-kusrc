@@ -25,12 +25,19 @@ interface MiniScene3DProps {
   customScene?: SlideExampleScene3D;
   hintTh?: string;
   compact?: boolean;
+  aboveInk?: boolean;
 }
 
 const DEFAULT_ISO: Vec3Tuple = [8.2, 8.2, 6.2];
 const COMPACT_ISO: Vec3Tuple = [9.8, 9.8, 7.4];
 
-export function MiniScene3D({ embed, customScene, hintTh, compact = false }: MiniScene3DProps) {
+export function MiniScene3D({
+  embed,
+  customScene,
+  hintTh,
+  compact = false,
+  aboveInk = false,
+}: MiniScene3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -321,7 +328,9 @@ export function MiniScene3D({ embed, customScene, hintTh, compact = false }: Min
   return (
     <div
       data-scene-3d="true"
-      className="h-full flex flex-col rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner"
+      className={`relative h-full flex flex-col rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner ${
+        aboveInk ? 'z-[25]' : 'z-10'
+      }`}
     >
       {/* 3D Canvas */}
       <div className={`relative flex-1 ${compact ? 'min-h-[64px]' : 'min-h-[210px]'}`}>

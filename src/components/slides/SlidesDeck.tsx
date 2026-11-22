@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react';
+import type {
+  PointerEvent as ReactPointerEvent,
+  TouchEvent as ReactTouchEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -9,6 +13,7 @@ import {
   ChevronRight,
   Eraser,
   FileDown,
+  GripVertical,
   Hand,
   LayoutGrid,
   Maximize2,
@@ -98,18 +103,30 @@ const FONT_SCALE_MAP: Record<
 > = {
   normal: {
     labelTh: 'ปกติ',
-    title: 'text-[36px] leading-tight',
-    subtitle: 'text-[20px]',
-    cardHeading: 'text-[25px] leading-snug',
-    bullet: 'text-[24px] leading-snug',
-    formulaLabel: 'text-[19px]',
-    formula: 'text-[23px]',
-    note: 'text-[20px]',
-    exPrompt: 'text-[25px] leading-snug',
-    exLatex: 'text-[24px]',
+    title: 'text-[32px] leading-tight',
+    subtitle: 'text-[18px]',
+    cardHeading: 'text-[23px] leading-snug',
+    bullet: 'text-[22px] leading-snug',
+    formulaLabel: 'text-[18px]',
+    formula: 'text-[21px]',
+    note: 'text-[18px]',
+    exPrompt: 'text-[23px] leading-snug',
+    exLatex: 'text-[21px]',
   },
   large: {
     labelTh: 'ใหญ่ (ฉายจอ)',
+    title: 'text-[36px] leading-tight',
+    subtitle: 'text-[20px]',
+    cardHeading: 'text-[26px] leading-snug',
+    bullet: 'text-[25px] leading-snug',
+    formulaLabel: 'text-[20px]',
+    formula: 'text-[24px]',
+    note: 'text-[20px]',
+    exPrompt: 'text-[26px] leading-snug',
+    exLatex: 'text-[24px]',
+  },
+  xlarge: {
+    labelTh: 'ใหญ่มาก',
     title: 'text-[42px] leading-tight',
     subtitle: 'text-[22px]',
     cardHeading: 'text-[29px] leading-snug',
@@ -119,18 +136,6 @@ const FONT_SCALE_MAP: Record<
     note: 'text-[22px]',
     exPrompt: 'text-[29px] leading-snug',
     exLatex: 'text-[26px]',
-  },
-  xlarge: {
-    labelTh: 'ใหญ่มาก',
-    title: 'text-[46px] leading-tight',
-    subtitle: 'text-[24px]',
-    cardHeading: 'text-[32px] leading-snug',
-    bullet: 'text-[30px] leading-snug',
-    formulaLabel: 'text-[24px]',
-    formula: 'text-[28px]',
-    note: 'text-[24px]',
-    exPrompt: 'text-[32px] leading-snug',
-    exLatex: 'text-[28px]',
   },
 };
 
@@ -177,8 +182,29 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     }
     return 'bottom';
   });
+  const [customToolbarPos, setCustomToolbarPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = window.localStorage.getItem('eng_math_2_toolbar_custom_pos');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown };
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+        return { x: parsed.x, y: parsed.y };
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return null;
+  });
   const [stageScale, setStageScale] = useState(1);
   const stageWrapperRef = useRef<HTMLElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const toolbarDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
   const stageSwipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const wheelCooldownRef = useRef(0);
 
@@ -247,6 +273,21 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
       // ignore storage errors
     }
   }, [toolbarPos]);
+
+  useEffect(() => {
+    try {
+      if (customToolbarPos) {
+        window.localStorage.setItem(
+          'eng_math_2_toolbar_custom_pos',
+          JSON.stringify(customToolbarPos),
+        );
+      } else {
+        window.localStorage.removeItem('eng_math_2_toolbar_custom_pos');
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [customToolbarPos]);
 
   useEffect(() => {
     const el = stageWrapperRef.current;
@@ -922,16 +963,22 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             {/* Floating Repositionable Write Toolbar when Write/Laser mode is active (zero layout shift) */}
             {drawEnabled && (() => {
               const isVertBar = toolbarPos === 'left' || toolbarPos === 'right';
-              const dockPosClass =
-                toolbarPos === 'top'
+              const dockPosClass = customToolbarPos
+                ? isVertBar
+                  ? 'flex-col items-stretch'
+                  : 'max-w-[96%] flex-row flex-wrap items-center'
+                : toolbarPos === 'top'
                   ? 'top-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
                   : toolbarPos === 'bottom'
                     ? 'bottom-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
                     : toolbarPos === 'left'
                       ? 'left-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch'
                       : 'right-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch';
-              const palettePopoverPosClass =
-                toolbarPos === 'bottom'
+              const palettePopoverPosClass = customToolbarPos
+                ? customToolbarPos.y > STAGE_HEIGHT * stageScale * 0.5
+                  ? 'bottom-full mb-2 left-0'
+                  : 'top-full mt-2 left-0'
+                : toolbarPos === 'bottom'
                   ? 'bottom-full mb-2 left-0'
                   : toolbarPos === 'top'
                     ? 'top-full mt-2 left-0'
@@ -939,11 +986,90 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       ? 'left-full ml-2 top-0'
                       : 'right-full mr-2 top-0';
 
+              const handleToolbarPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+                const target = e.target as HTMLElement | null;
+                if (
+                  !target?.closest('[data-toolbar-drag="true"]') &&
+                  target?.closest('button,input,label')
+                ) {
+                  return;
+                }
+                const parent = stageWrapperRef.current;
+                const bar = toolbarRef.current;
+                if (!parent || !bar) return;
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                } catch {
+                  // ignore capture failure
+                }
+                const parentRect = parent.getBoundingClientRect();
+                const barRect = bar.getBoundingClientRect();
+                toolbarDragRef.current = {
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: barRect.left - parentRect.left,
+                  origY: barRect.top - parentRect.top,
+                };
+              };
+
+              const handleToolbarPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+                const drag = toolbarDragRef.current;
+                if (!drag || drag.pointerId !== e.pointerId) return;
+                const parent = stageWrapperRef.current;
+                const bar = toolbarRef.current;
+                if (!parent || !bar) return;
+                e.preventDefault();
+                const parentRect = parent.getBoundingClientRect();
+                const barRect = bar.getBoundingClientRect();
+                const nextX = Math.max(
+                  8,
+                  Math.min(parentRect.width - barRect.width - 8, drag.origX + (e.clientX - drag.startX)),
+                );
+                const nextY = Math.max(
+                  8,
+                  Math.min(parentRect.height - barRect.height - 8, drag.origY + (e.clientY - drag.startY)),
+                );
+                setCustomToolbarPos({ x: Math.round(nextX), y: Math.round(nextY) });
+              };
+
+              const handleToolbarPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+                if (toolbarDragRef.current?.pointerId !== e.pointerId) return;
+                toolbarDragRef.current = null;
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+                } catch {
+                  // ignore release failure
+                }
+              };
+
               return (
                 <div
+                  ref={toolbarRef}
                   data-floating-toolbar="true"
-                  className={`absolute z-40 rounded-2xl border border-amber-300 bg-amber-50/95 backdrop-blur-md p-1.5 shadow-2xl flex gap-1.5 text-xs sm:text-sm ${dockPosClass}`}
+                  onPointerDown={handleToolbarPointerDown}
+                  onPointerMove={handleToolbarPointerMove}
+                  onPointerUp={handleToolbarPointerEnd}
+                  onPointerCancel={handleToolbarPointerEnd}
+                  style={
+                    customToolbarPos
+                      ? { left: customToolbarPos.x, top: customToolbarPos.y }
+                      : undefined
+                  }
+                  className={`absolute z-40 rounded-xl border border-amber-300 bg-amber-50/95 backdrop-blur-md p-[4px] shadow-xl flex gap-[4px] text-[13px] touch-none ${dockPosClass}`}
                 >
+                  {/* Drag Handle (Finger / Apple Pencil / Mouse) */}
+                  <div
+                    data-toolbar-drag="true"
+                    title="ลากด้วยนิ้ว ปากกา หรือเมาส์ เพื่อย้ายตำแหน่งแถบเครื่องมือ"
+                    className={`inline-flex items-center justify-center rounded-[8px] text-amber-700 hover:bg-amber-100 cursor-grab active:cursor-grabbing touch-none ${
+                      isVertBar ? 'py-[3px] border-b border-amber-200/80' : 'px-[3px]'
+                    }`}
+                  >
+                    <GripVertical className={`w-4 h-4 ${isVertBar ? 'rotate-90' : ''}`} />
+                  </div>
                   {/* Prominent 1-tap Exit Write Mode button */}
                   <button
                     type="button"
@@ -951,19 +1077,19 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       setDrawEnabled(false);
                       setColorPickerOpen(false);
                     }}
-                    title="สลับกลับไปโหมดดู/หมุน 3D/เลื่อนหน้า (คีย์ลัด W)"
-                    className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm transition active:scale-95"
+                    title="สลับกลับไปโหมดดูอย่างเดียว (คีย์ลัด W)"
+                    className="inline-flex items-center justify-center gap-1 px-[8px] py-[3px] rounded-[8px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs transition active:scale-95"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>เสร็จ/หมุน 3D</span>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>เสร็จ</span>
                   </button>
 
                   {/* Color Swatches + Palette */}
                   <div
-                    className={`flex items-center gap-1.5 ${
+                    className={`flex items-center gap-[4px] ${
                       isVertBar
-                        ? 'grid grid-cols-2 py-1 border-y border-amber-200/80 justify-items-center'
-                        : 'pl-1.5 border-l border-amber-200'
+                        ? 'grid grid-cols-2 py-[3px] border-y border-amber-200/80 justify-items-center'
+                        : 'pl-[5px] border-l border-amber-200'
                     }`}
                   >
                     {PEN_COLORS.map((c) => (
@@ -976,7 +1102,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           setColorPickerOpen(false);
                         }}
                         title={c.label}
-                        className={`w-7 h-7 rounded-full border-2 transition ${
+                        className={`w-[22px] h-[22px] rounded-full border-2 transition ${
                           toolMode === 'pen' && penColor === c.color
                             ? 'border-amber-600 scale-110 shadow'
                             : 'border-white'
@@ -993,7 +1119,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           setColorPickerOpen((o) => !o);
                         }}
                         title="เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง"
-                        className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-xl font-semibold border transition ${
+                        className={`inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[8px] font-semibold border transition ${
                           isVertBar ? 'w-full' : ''
                         } ${
                           colorPickerOpen ||
@@ -1002,9 +1128,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-50'
                         }`}
                       >
-                        <Palette className="w-3.5 h-3.5" />
+                        <Palette className="w-3 h-3" />
                         <span
-                          className="w-3 h-3 rounded-full border border-slate-300 shrink-0"
+                          className="w-[10px] h-[10px] rounded-full border border-slate-300 shrink-0"
                           style={{ backgroundColor: penColor }}
                         />
                         <span>สีเพิ่ม</span>
@@ -1068,8 +1194,8 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
                   {/* Stroke / Eraser widths */}
                   <div
-                    className={`flex items-center gap-1 ${
-                      isVertBar ? 'justify-center' : 'pl-1.5 border-l border-amber-200'
+                    className={`flex items-center gap-[3px] ${
+                      isVertBar ? 'justify-center' : 'pl-[5px] border-l border-amber-200'
                     }`}
                     title={toolMode === 'eraser' ? 'ปรับขนาดยางลบ' : 'ปรับขนาดหัวปากกา'}
                   >
@@ -1092,7 +1218,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                               setPenWidth(w);
                             }
                           }}
-                          className={`px-2 py-1 rounded-lg font-semibold border transition ${
+                          className={`px-[6px] py-[3px] rounded-[7px] font-semibold border transition ${
                             isSelected
                               ? toolMode === 'eraser'
                                 ? 'bg-rose-600 text-white border-rose-600'
@@ -1107,46 +1233,46 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   </div>
 
                   {/* Eraser + Laser */}
-                  <div className={`flex items-center gap-1 ${isVertBar ? 'flex-col items-stretch' : ''}`}>
+                  <div className={`flex items-center gap-[3px] ${isVertBar ? 'flex-col items-stretch' : ''}`}>
                     <button
                       type="button"
                       onClick={() => {
                         setColorPickerOpen(false);
                         setToolMode((m) => (m === 'eraser' ? 'pen' : 'eraser'));
                       }}
-                      className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg font-semibold border ${
+                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border ${
                         toolMode === 'eraser'
                           ? 'bg-rose-600 text-white border-rose-600'
                           : 'bg-white text-slate-700 border-amber-200'
                       }`}
                     >
-                      <Eraser className="w-3.5 h-3.5" /> ยางลบ
+                      <Eraser className="w-3 h-3" /> ยางลบ
                     </button>
                     {toolMode === 'eraser' && (
-                      <div className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-0.5 text-xs font-semibold">
+                      <div className="inline-flex items-center justify-center rounded-[7px] border border-rose-200 bg-white p-[2px] text-[12px] font-semibold">
                         <button
                           type="button"
                           onClick={() => setEraserMode('partial')}
                           title="ลบเฉพาะบริเวณที่หัวยางลบลากผ่าน"
-                          className={`px-2 py-0.5 rounded-md transition ${
+                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             eraserMode === 'partial'
                               ? 'bg-rose-600 text-white shadow-xs'
                               : 'text-rose-700 hover:bg-rose-50'
                           }`}
                         >
-                          ลบบางส่วน
+                          บางส่วน
                         </button>
                         <button
                           type="button"
                           onClick={() => setEraserMode('stroke')}
                           title="แตะหรือลากผ่านเส้นไหน จะลบออกทั้งเส้น"
-                          className={`px-2 py-0.5 rounded-md transition ${
+                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             eraserMode === 'stroke'
                               ? 'bg-rose-600 text-white shadow-xs'
                               : 'text-rose-700 hover:bg-rose-50'
                           }`}
                         >
-                          ลบทั้งเส้น
+                          ทั้งเส้น
                         </button>
                       </div>
                     )}
@@ -1156,7 +1282,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                         setColorPickerOpen(false);
                         setToolMode((m) => (m === 'laser' ? 'pen' : 'laser'));
                       }}
-                      className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold border transition ${
+                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
                         toolMode === 'laser'
                           ? 'bg-red-600 text-white border-red-600 shadow-sm'
                           : 'bg-white text-red-700 border-red-200 hover:bg-red-50'
@@ -1170,12 +1296,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       เลเซอร์
                     </button>
                     {toolMode === 'laser' && (
-                      <div className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white p-0.5 text-xs font-semibold">
+                      <div className="inline-flex items-center justify-center rounded-[7px] border border-red-200 bg-white p-[2px] text-[12px] font-semibold">
                         <button
                           type="button"
                           onClick={() => setLaserStyle('trail')}
                           title="วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ"
-                          className={`px-2 py-0.5 rounded-md transition ${
+                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             laserStyle === 'trail'
                               ? 'bg-red-600 text-white shadow-xs'
                               : 'text-red-700 hover:bg-red-50'
@@ -1187,7 +1313,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           type="button"
                           onClick={() => setLaserStyle('dot')}
                           title="เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา"
-                          className={`px-2 py-0.5 rounded-md transition ${
+                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             laserStyle === 'dot'
                               ? 'bg-red-600 text-white shadow-xs'
                               : 'text-red-700 hover:bg-red-50'
@@ -1204,7 +1330,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     type="button"
                     onClick={() => setPencilOnly((p) => !p)}
                     title="สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย"
-                    className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg font-semibold border transition ${
+                    className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
                       pencilOnly
                         ? 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-white text-slate-700 border-slate-300'
@@ -1213,47 +1339,47 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     {pencilOnly ? (
                       <>
                         <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>{isVertBar ? 'เฉพาะปากกา' : 'กันฝ่ามือ: เฉพาะปากกา'}</span>
+                        <span>เฉพาะปากกา</span>
                       </>
                     ) : (
                       <>
                         <Hand className="w-3.5 h-3.5" />
-                        <span>{isVertBar ? 'นิ้ว+ปากกา' : 'โหมดนิ้ว + ปากกา'}</span>
+                        <span>นิ้ว+ปากกา</span>
                       </>
                     )}
                   </button>
 
                   {/* Undo / Clear */}
-                  <div className={`flex items-center gap-1 ${isVertBar ? 'flex-col items-stretch' : ''}`}>
+                  <div className={`flex items-center gap-[3px] ${isVertBar ? 'flex-col items-stretch' : ''}`}>
                     <button
                       type="button"
                       onClick={handleUndoStroke}
                       disabled={!canUndo}
-                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
+                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" /> ย้อนกลับ
+                      <RotateCcw className="w-3 h-3" /> ย้อน
                     </button>
                     <button
                       type="button"
                       onClick={handleClearSlideInk}
                       disabled={currentStrokes.length === 0}
-                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
+                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> ล้างหน้านี้
+                      <Trash2 className="w-3 h-3" /> ล้างหน้า
                     </button>
                     <button
                       type="button"
                       onClick={handleClearAllInk}
                       disabled={annotatedSlideCount === 0}
-                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
+                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> ล้างทุกหน้า
+                      <Trash2 className="w-3 h-3" /> ล้างหมด
                     </button>
                   </div>
 
                   {/* Toolbar Dock Position Switcher */}
                   <div
-                    className={`flex items-center gap-0.5 rounded-xl border border-amber-200 bg-white p-0.5 text-[11px] font-bold ${
+                    className={`flex items-center gap-[2px] rounded-[8px] border border-amber-200 bg-white p-[2px] text-[12px] font-bold ${
                       isVertBar ? 'grid grid-cols-2' : ''
                     }`}
                     title="ย้ายตำแหน่งแถบเครื่องมือเขียน"
@@ -1271,10 +1397,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                         type="button"
                         onClick={() => {
                           setColorPickerOpen(false);
+                          setCustomToolbarPos(null);
                           setToolbarPos(pos.id);
                         }}
-                        className={`px-1.5 py-0.5 rounded-lg transition ${
-                          toolbarPos === pos.id
+                        className={`px-[5px] py-[2px] rounded-[6px] transition ${
+                          !customToolbarPos && toolbarPos === pos.id
                             ? 'bg-amber-500 text-white shadow-xs'
                             : 'text-slate-600 hover:bg-amber-50'
                         }`}
@@ -1403,6 +1530,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                                   customScene={ex.scene3D}
                                   hintTh={ex.scene3D.hintTh}
                                   compact
+                                  aboveInk={drawEnabled && toolMode !== 'laser'}
                                 />
                               </div>
                             </div>
@@ -1467,7 +1595,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                                   )}
                                   <div
                                     className={`overflow-x-auto overflow-y-hidden leading-normal py-0.5 ${
-                                      slide.kind === 'summary' ? 'text-[22px]' : fs.formula
+                                      slide.kind === 'summary' ? 'text-[20px]' : fs.formula
                                     }`}
                                   >
                                     <KaTeX math={f.latex} />
@@ -1489,7 +1617,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
                     {slide.embed3D && (
                       <div className="col-span-6 min-h-[260px]">
-                        <MiniScene3D embed={slide.embed3D} hintTh={slide.embedHintTh} />
+                        <MiniScene3D
+                          embed={slide.embed3D}
+                          hintTh={slide.embedHintTh}
+                          aboveInk={drawEnabled && toolMode !== 'laser'}
+                        />
                       </div>
                     )}
                   </div>
