@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   doesSegmentHitStroke,
   drawStrokeOnContext,
   isStylusTouch,
-  resolveSwipeDirection,
   type AnnotationTool,
   type EraserMode,
   type InkStroke,
   type LaserStyle,
-  type NavDirection,
 } from '../../slides/inkUtils';
 
 export type { InkStroke };
@@ -24,10 +22,8 @@ interface AnnotationCanvasProps {
   eraserMode?: EraserMode;
   toolMode: AnnotationTool;
   laserStyle: LaserStyle;
-  navDirection?: NavDirection;
   onAddStroke: (stroke: InkStroke) => void;
   onEraseStrokes?: (remainingStrokes: InkStroke[]) => void;
-  onFingerSwipe?: (dir: 'next' | 'prev') => void;
 }
 
 const LASER_HOLD_MS = 900;
@@ -91,10 +87,8 @@ export function AnnotationCanvas({
   eraserMode = 'partial',
   toolMode,
   laserStyle,
-  navDirection = 'horizontal',
   onAddStroke,
   onEraseStrokes,
-  onFingerSwipe,
 }: AnnotationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const laserCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -102,7 +96,6 @@ export function AnnotationCanvas({
   const activePointerIdRef = useRef<number | null>(null);
   const lastEraserPtRef = useRef<[number, number] | null>(null);
   const strokesLatestRef = useRef<InkStroke[]>(strokes);
-  const touchSwipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   useEffect(() => {
     strokesLatestRef.current = strokes;
@@ -278,26 +271,38 @@ export function AnnotationCanvas({
     };
   }, []);
 
-  // Prevent iOS/iPadOS Safari from intercepting initial pencil/touch strokes for scroll or callout
+  // Prevent iOS/iPadOS Safari from intercepting Apple Pencil (or finger when !pencilOnly) for scroll or callout,
+  // while leaving finger touches free to scroll slide body vertically when pencilOnly palm-rejection is enabled.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !drawEnabled) return;
-    const preventNativeTouch = (e: Event) => {
+    const preventStylusOrFingerDraw = (e: Event) => {
+      if (!pencilOnly) {
+        e.preventDefault();
+        return;
+      }
+      const te = e as TouchEvent;
+      const first = te.touches?.[0] ?? te.changedTouches?.[0];
+      if (first && isStylusTouch(first as Touch & { touchType?: string })) {
+        e.preventDefault();
+      }
+    };
+    const preventGesture = (e: Event) => {
       e.preventDefault();
     };
-    canvas.addEventListener('touchstart', preventNativeTouch, { passive: false });
-    canvas.addEventListener('touchmove', preventNativeTouch, { passive: false });
-    canvas.addEventListener('touchend', preventNativeTouch, { passive: false });
-    canvas.addEventListener('gesturestart', preventNativeTouch, { passive: false });
-    canvas.addEventListener('gesturechange', preventNativeTouch, { passive: false });
+    canvas.addEventListener('touchstart', preventStylusOrFingerDraw, { passive: false });
+    canvas.addEventListener('touchmove', preventStylusOrFingerDraw, { passive: false });
+    canvas.addEventListener('touchend', preventStylusOrFingerDraw, { passive: false });
+    canvas.addEventListener('gesturestart', preventGesture, { passive: false });
+    canvas.addEventListener('gesturechange', preventGesture, { passive: false });
     return () => {
-      canvas.removeEventListener('touchstart', preventNativeTouch);
-      canvas.removeEventListener('touchmove', preventNativeTouch);
-      canvas.removeEventListener('touchend', preventNativeTouch);
-      canvas.removeEventListener('gesturestart', preventNativeTouch);
-      canvas.removeEventListener('gesturechange', preventNativeTouch);
+      canvas.removeEventListener('touchstart', preventStylusOrFingerDraw);
+      canvas.removeEventListener('touchmove', preventStylusOrFingerDraw);
+      canvas.removeEventListener('touchend', preventStylusOrFingerDraw);
+      canvas.removeEventListener('gesturestart', preventGesture);
+      canvas.removeEventListener('gesturechange', preventGesture);
     };
-  }, [drawEnabled]);
+  }, [drawEnabled, pencilOnly]);
 
   const toNormFromClient = (clientX: number, clientY: number, rect: DOMRect): [number, number] => {
     const x = Math.max(0, Math.min(1, (clientX - rect.left) / (rect.width || 1)));
@@ -338,8 +343,12 @@ export function AnnotationCanvas({
     if (toolMode === 'eraser' && eraserMode === 'stroke') {
       lastEraserPtRef.current = pt;
       const radiusPx = (eraserSize * 4.5) / 2;
+      const stageW = canvas.clientWidth || 1280;
+      const stageH = canvas.clientHeight || 600;
       const cur = strokesLatestRef.current;
-      const next = cur.filter((st) => !doesSegmentHitStroke(pt, pt, st, radiusPx));
+      const next = cur.filter(
+        (st) => !doesSegmentHitStroke(pt, pt, st, radiusPx, stageW, stageH),
+      );
       if (next.length !== cur.length) {
         strokesLatestRef.current = next;
         onEraseStrokes?.(next);
@@ -413,6 +422,8 @@ export function AnnotationCanvas({
           : [nativeEvt];
       const samples = coalesced.length > 0 ? coalesced : [nativeEvt];
       const radiusPx = (eraserSize * 4.5) / 2;
+      const stageW = canvas.clientWidth || 1280;
+      const stageH = canvas.clientHeight || 600;
       let prevPt = lastEraserPtRef.current;
       let cur = strokesLatestRef.current;
       let changed = false;
@@ -420,7 +431,7 @@ export function AnnotationCanvas({
       for (const sample of samples) {
         const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
         const filtered = cur.filter(
-          (st) => !doesSegmentHitStroke(prevPt, nextPt, st, radiusPx),
+          (st) => !doesSegmentHitStroke(prevPt, nextPt, st, radiusPx, stageW, stageH),
         );
         if (filtered.length !== cur.length) {
           cur = filtered;
@@ -529,41 +540,6 @@ export function AnnotationCanvas({
     }
   };
 
-  const handleTouchStart = (e: ReactTouchEvent<HTMLCanvasElement>) => {
-    if (!drawEnabled || !pencilOnly || !onFingerSwipe) return;
-    if (e.touches?.length !== 1) {
-      touchSwipeRef.current = null;
-      return;
-    }
-    const touch = e.touches[0] as Touch & { touchType?: string };
-    if (isStylusTouch(touch)) {
-      touchSwipeRef.current = null;
-      return;
-    }
-    touchSwipeRef.current = { x: touch.clientX, y: touch.clientY, t: performance.now() };
-  };
-
-  const handleTouchMove = (e: ReactTouchEvent<HTMLCanvasElement>) => {
-    if (e.touches?.length !== 1) {
-      touchSwipeRef.current = null;
-    }
-  };
-
-  const handleTouchEnd = (e: ReactTouchEvent<HTMLCanvasElement>) => {
-    const start = touchSwipeRef.current;
-    touchSwipeRef.current = null;
-    if (!start || !drawEnabled || !pencilOnly || !onFingerSwipe) return;
-    if (e.changedTouches?.length !== 1) return;
-    const ct = e.changedTouches[0] as Touch & { touchType?: string };
-    if (isStylusTouch(ct)) return;
-    if (performance.now() - start.t > 900) return;
-
-    const dir = resolveSwipeDirection(ct.clientX - start.x, ct.clientY - start.y, navDirection);
-    if (dir) {
-      onFingerSwipe(dir);
-    }
-  };
-
   return (
     <>
       <canvas
@@ -573,16 +549,10 @@ export function AnnotationCanvas({
         onPointerUp={finishStroke}
         onPointerCancel={finishStroke}
         onPointerLeave={handlePointerLeave}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={() => {
-          touchSwipeRef.current = null;
-        }}
         style={
           drawEnabled
             ? {
-                touchAction: 'none',
+                touchAction: pencilOnly ? 'pan-y' : 'none',
                 WebkitTouchCallout: 'none',
                 WebkitUserSelect: 'none',
                 userSelect: 'none',
@@ -591,7 +561,9 @@ export function AnnotationCanvas({
         }
         className={`absolute inset-0 w-full h-full z-20 ${
           drawEnabled
-            ? 'pointer-events-auto touch-none cursor-crosshair'
+            ? pencilOnly
+              ? 'pointer-events-auto touch-pan-y cursor-crosshair'
+              : 'pointer-events-auto touch-none cursor-crosshair'
             : 'pointer-events-none'
         }`}
       />

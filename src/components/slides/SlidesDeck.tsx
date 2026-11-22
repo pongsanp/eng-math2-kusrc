@@ -197,6 +197,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   });
   const [stageScale, setStageScale] = useState(1);
   const stageWrapperRef = useRef<HTMLElement | null>(null);
+  const slideBodyRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const toolbarDragRef = useRef<{
     pointerId: number;
@@ -205,7 +206,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     origX: number;
     origY: number;
   } | null>(null);
-  const stageSwipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const stageSwipeRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    scrollTop: number;
+  } | null>(null);
   const wheelCooldownRef = useRef(0);
 
   // Annotation / Apple Pencil state
@@ -484,7 +490,17 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
         ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 2)
         : CH1_VISIBLE_SLIDES;
 
+  useEffect(() => {
+    if (slideBodyRef.current) {
+      slideBodyRef.current.scrollTop = 0;
+    }
+  }, [safeSlideIdx]);
+
   const handleStageTouchStart = (e: ReactTouchEvent<HTMLElement>) => {
+    if (drawEnabled && !pencilOnly) {
+      stageSwipeRef.current = null;
+      return;
+    }
     if (e.touches?.length !== 1) {
       stageSwipeRef.current = null;
       return;
@@ -499,7 +515,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
       stageSwipeRef.current = null;
       return;
     }
-    stageSwipeRef.current = { x: touch.clientX, y: touch.clientY, t: performance.now() };
+    stageSwipeRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      t: performance.now(),
+      scrollTop: slideBodyRef.current?.scrollTop ?? 0,
+    };
   };
 
   const handleStageTouchMove = (e: ReactTouchEvent<HTMLElement>) => {
@@ -512,9 +533,14 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     const start = stageSwipeRef.current;
     stageSwipeRef.current = null;
     if (!start || e.changedTouches?.length !== 1) return;
+    if (drawEnabled && !pencilOnly) return;
     const ct = e.changedTouches[0] as Touch & { touchType?: string };
     if (isStylusTouch(ct)) return;
     if (performance.now() - start.t > 900) return;
+
+    const body = slideBodyRef.current;
+    const didBodyScroll = body ? Math.abs(body.scrollTop - start.scrollTop) > 4 : false;
+    if (navDirection === 'vertical' && didBodyScroll) return;
 
     const dir = resolveSwipeDirection(ct.clientX - start.x, ct.clientY - start.y, navDirection);
     if (dir === 'next') goNext();
@@ -526,6 +552,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     const target = e.target as HTMLElement | null;
     if (target?.closest('[data-scene-3d],[data-floating-toolbar]')) return;
     if (Math.abs(e.deltaY) < 24 || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+
+    const body = slideBodyRef.current;
+    if (body && body.scrollHeight > body.clientHeight + 2) {
+      if (e.deltaY > 0 && body.scrollTop + body.clientHeight < body.scrollHeight - 2) return;
+      if (e.deltaY < 0 && body.scrollTop > 2) return;
+    }
 
     const now = performance.now();
     if (now - wheelCooldownRef.current < 300) return;
@@ -1459,17 +1491,17 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 </div>
               </div>
 
-              {/* Slide Body */}
+              {/* Slide Body (always scrollable via finger/wheel even in Write mode; ink canvas moves with content) */}
               <div
-                className={`flex-1 min-h-0 p-3.5 ${
-                  drawEnabled
-                    ? 'overflow-hidden touch-none select-none'
-                    : 'overflow-y-auto custom-scrollbar select-text'
+                ref={slideBodyRef}
+                className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col ${
+                  drawEnabled ? 'select-none' : 'select-text'
                 }`}
               >
+                <div className="relative flex-1 p-3.5 flex flex-col">
                 {slide.kind === 'example' && slide.examples ? (
                   <div
-                    className={`h-full flex flex-col ${
+                    className={`flex-1 min-h-0 flex flex-col ${
                       slide.examples.length > 1 ? 'gap-2' : 'gap-2.5'
                     }`}
                   >
@@ -1541,17 +1573,17 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   </div>
                 ) : (
                   <div
-                    className={`h-full grid gap-4 ${
-                      slide.embed3D ? 'grid-cols-12' : 'grid-cols-1'
+                    className={`flex-1 min-h-0 grid gap-4 ${
+                      slide.embed3D ? 'grid-cols-12 items-start' : 'grid-cols-1'
                     }`}
                   >
                     <div
                       className={
                         slide.embed3D
-                          ? 'col-span-6 flex flex-col justify-center gap-2.5'
+                          ? 'col-span-6 my-auto flex flex-col gap-2.5'
                           : slide.kind === 'summary'
                             ? 'grid grid-cols-2 gap-3 items-stretch'
-                            : 'flex flex-col justify-center gap-2.5'
+                            : 'my-auto flex flex-col gap-2.5'
                       }
                     >
                       {slide.cards?.map((card, cIdx) => (
@@ -1616,7 +1648,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     </div>
 
                     {slide.embed3D && (
-                      <div className="col-span-6 min-h-[260px]">
+                      <div className="col-span-6 sticky top-0 h-[520px]">
                         <MiniScene3D
                           embed={slide.embed3D}
                           hintTh={slide.embedHintTh}
@@ -1626,24 +1658,23 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     )}
                   </div>
                 )}
-              </div>
 
-              {/* Transparent Ink / Apple Pencil Overlay */}
-              <AnnotationCanvas
-                strokes={currentStrokes}
-                drawEnabled={drawEnabled}
-                pencilOnly={pencilOnly}
-                penColor={penColor}
-                penWidth={penWidth}
-                eraserSize={eraserSize}
-                eraserMode={eraserMode}
-                toolMode={toolMode}
-                laserStyle={laserStyle}
-                navDirection={navDirection}
-                onAddStroke={handleAddStroke}
-                onEraseStrokes={handleEraseStrokes}
-                onFingerSwipe={(dir) => (dir === 'next' ? goNext() : goPrev())}
-              />
+                {/* Transparent Ink / Apple Pencil Overlay (pinned inside scrollable slide body) */}
+                <AnnotationCanvas
+                  strokes={currentStrokes}
+                  drawEnabled={drawEnabled}
+                  pencilOnly={pencilOnly}
+                  penColor={penColor}
+                  penWidth={penWidth}
+                  eraserSize={eraserSize}
+                  eraserMode={eraserMode}
+                  toolMode={toolMode}
+                  laserStyle={laserStyle}
+                  onAddStroke={handleAddStroke}
+                  onEraseStrokes={handleEraseStrokes}
+                />
+                </div>
+              </div>
               </div>
             </div>
           </main>

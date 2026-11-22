@@ -436,7 +436,7 @@ function renderPrintSlide(
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 py-3">
+        <div className="relative flex-1 min-h-0 py-3">
           {slide.kind === 'example' && slide.examples ? (
             <div className="h-full flex flex-col gap-3">
               {slide.examples.map((ex, i) => (
@@ -557,16 +557,16 @@ function renderPrintSlide(
               )}
             </div>
           )}
-        </div>
 
-        {/* Transparent Handwritten Ink PNG Overlay */}
-        {includeInk && inkDataUrl && (
-          <img
-            src={inkDataUrl}
-            alt=""
-            className="absolute inset-0 w-full h-full pointer-events-none z-20"
-          />
-        )}
+          {/* Transparent Handwritten Ink PNG Overlay (aligned 1:1 to Slide Body) */}
+          {includeInk && inkDataUrl && (
+            <img
+              src={inkDataUrl}
+              alt=""
+              className="absolute inset-0 w-full h-full pointer-events-none z-20"
+            />
+          )}
+        </div>
       </div>
 
       {/* Footer */}
