@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react';
 import {
   ArrowLeft,
+  ArrowLeftRight,
+  ArrowUpDown,
+  Check,
   ChevronLeft,
   ChevronRight,
   Eraser,
@@ -16,16 +20,25 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { CH1_SLIDES, type SlideDef, type SlideFormulaBlock } from '../../slides/ch1SlidesData';
+import {
+  CH1_VISIBLE_SLIDES,
+  type SlideDef,
+  type SlideFormulaBlock,
+} from '../../slides/ch1SlidesData';
 import { clearDeckInk, loadDeckInk, saveSlideInk } from '../../slides/inkStorage';
 import { KaTeX } from '../KaTeX';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import {
+  isStylusTouch,
   renderStrokesToDataUrl,
+  resolveSwipeDirection,
   type AnnotationTool,
+  type EraserMode,
   type InkStroke,
   type LaserStyle,
+  type NavDirection,
   type PrintScope,
+  type ToolbarDock,
 } from '../../slides/inkUtils';
 import { MiniScene3D } from './MiniScene3D';
 import { RichMathText } from './RichMathText';
@@ -85,39 +98,39 @@ const FONT_SCALE_MAP: Record<
 > = {
   normal: {
     labelTh: 'ปกติ',
-    title: 'text-xl sm:text-2xl leading-tight',
-    subtitle: 'text-xs sm:text-sm',
-    cardHeading: 'text-base sm:text-lg',
-    bullet: 'text-sm sm:text-base',
-    formulaLabel: 'text-xs sm:text-sm',
-    formula: 'text-base sm:text-lg',
-    note: 'text-xs sm:text-sm',
-    exPrompt: 'text-base sm:text-lg',
-    exLatex: 'text-base sm:text-xl',
+    title: 'text-[36px] leading-tight',
+    subtitle: 'text-[20px]',
+    cardHeading: 'text-[25px] leading-snug',
+    bullet: 'text-[24px] leading-snug',
+    formulaLabel: 'text-[19px]',
+    formula: 'text-[23px]',
+    note: 'text-[20px]',
+    exPrompt: 'text-[25px] leading-snug',
+    exLatex: 'text-[24px]',
   },
   large: {
     labelTh: 'ใหญ่ (ฉายจอ)',
-    title: 'text-2xl sm:text-3xl lg:text-[2rem] leading-tight',
-    subtitle: 'text-sm sm:text-base',
-    cardHeading: 'text-lg sm:text-xl lg:text-[1.28rem]',
-    bullet: 'text-base sm:text-lg lg:text-[1.16rem]',
-    formulaLabel: 'text-xs sm:text-sm lg:text-base',
-    formula: 'text-lg sm:text-xl lg:text-[1.3rem]',
-    note: 'text-sm sm:text-base',
-    exPrompt: 'text-lg sm:text-xl lg:text-[1.3rem]',
-    exLatex: 'text-lg sm:text-xl lg:text-[1.4rem]',
+    title: 'text-[42px] leading-tight',
+    subtitle: 'text-[22px]',
+    cardHeading: 'text-[29px] leading-snug',
+    bullet: 'text-[28px] leading-snug',
+    formulaLabel: 'text-[22px]',
+    formula: 'text-[26px]',
+    note: 'text-[22px]',
+    exPrompt: 'text-[29px] leading-snug',
+    exLatex: 'text-[26px]',
   },
   xlarge: {
     labelTh: 'ใหญ่มาก',
-    title: 'text-2xl sm:text-3xl lg:text-[2.25rem] leading-tight',
-    subtitle: 'text-base sm:text-lg',
-    cardHeading: 'text-xl sm:text-2xl lg:text-[1.45rem]',
-    bullet: 'text-lg sm:text-xl lg:text-[1.3rem]',
-    formulaLabel: 'text-sm sm:text-base lg:text-lg',
-    formula: 'text-xl sm:text-2xl lg:text-[1.48rem]',
-    note: 'text-base sm:text-lg',
-    exPrompt: 'text-xl sm:text-2xl lg:text-[1.45rem]',
-    exLatex: 'text-xl sm:text-2xl lg:text-[1.58rem]',
+    title: 'text-[46px] leading-tight',
+    subtitle: 'text-[24px]',
+    cardHeading: 'text-[32px] leading-snug',
+    bullet: 'text-[30px] leading-snug',
+    formulaLabel: 'text-[24px]',
+    formula: 'text-[28px]',
+    note: 'text-[24px]',
+    exPrompt: 'text-[32px] leading-snug',
+    exLatex: 'text-[28px]',
   },
 };
 
@@ -136,21 +149,53 @@ function toneClasses(tone?: SlideFormulaBlock['tone']): string {
   }
 }
 
+const STAGE_WIDTH = 1280;
+const STAGE_HEIGHT = 720;
+const NAV_DIR_STORAGE_KEY = 'eng_math_2_nav_dir';
+const TOOLBAR_POS_STORAGE_KEY = 'eng_math_2_toolbar_pos';
+
 export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   const [slideIdx, setSlideIdx] = useState(0);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [textScale, setTextScale] = useState<TextScale>('large');
+  const [navDirection, setNavDirection] = useState<NavDirection>(() => {
+    try {
+      const saved = window.localStorage.getItem(NAV_DIR_STORAGE_KEY);
+      return saved === 'vertical' ? 'vertical' : 'horizontal';
+    } catch {
+      return 'horizontal';
+    }
+  });
+  const [toolbarPos, setToolbarPos] = useState<ToolbarDock>(() => {
+    try {
+      const saved = window.localStorage.getItem(TOOLBAR_POS_STORAGE_KEY);
+      if (saved === 'top' || saved === 'bottom' || saved === 'left' || saved === 'right') {
+        return saved;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'bottom';
+  });
+  const [stageScale, setStageScale] = useState(1);
+  const stageWrapperRef = useRef<HTMLElement | null>(null);
+  const stageSwipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const wheelCooldownRef = useRef(0);
 
   // Annotation / Apple Pencil state
   const [drawEnabled, setDrawEnabled] = useState(false);
   const [pencilOnly, setPencilOnly] = useState(true);
   const [penColor, setPenColor] = useState('#2563eb');
   const [penWidth, setPenWidth] = useState(4);
+  const [eraserSize, setEraserSize] = useState(6);
+  const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
   const [toolMode, setToolMode] = useState<AnnotationTool>('pen');
   const [laserStyle, setLaserStyle] = useState<LaserStyle>('trail');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [strokesBySlide, setStrokesBySlide] = useState<Record<number, InkStroke[]>>({});
   const strokesRef = useRef<Record<number, InkStroke[]>>({});
+  const undoHistoryRef = useRef<Record<number, InkStroke[][]>>({});
+  const [undoCountBySlide, setUndoCountBySlide] = useState<Record<number, number>>({});
 
   // PDF Export state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -180,11 +225,46 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     };
   }, []);
 
-  const slide: SlideDef = CH1_SLIDES[slideIdx];
-  const totalSlides = CH1_SLIDES.length;
-  const lecture2StartIdx = CH1_SLIDES.findIndex((s) => s.lecture === 2);
+  const totalSlides = CH1_VISIBLE_SLIDES.length;
+  const safeSlideIdx = Math.min(slideIdx, Math.max(0, totalSlides - 1));
+  const slide: SlideDef = CH1_VISIBLE_SLIDES[safeSlideIdx];
+  const lecture2StartIdx = CH1_VISIBLE_SLIDES.findIndex((s) => s.lecture === 2);
   const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalSlides;
   const fs = FONT_SCALE_MAP[textScale];
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NAV_DIR_STORAGE_KEY, navDirection);
+    } catch {
+      // ignore storage errors
+    }
+  }, [navDirection]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TOOLBAR_POS_STORAGE_KEY, toolbarPos);
+    } catch {
+      // ignore storage errors
+    }
+  }, [toolbarPos]);
+
+  useEffect(() => {
+    const el = stageWrapperRef.current;
+    if (!el) return;
+    const updateScale = () => {
+      const style = window.getComputedStyle(el);
+      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const availW = Math.max(240, el.clientWidth - padX);
+      const availH = Math.max(180, el.clientHeight - padY);
+      const next = Math.max(0.2, Math.min(availW / STAGE_WIDTH, availH / STAGE_HEIGHT));
+      setStageScale(next);
+    };
+    updateScale();
+    const ro = new ResizeObserver(updateScale);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [overviewOpen]);
 
   const goPrev = useCallback(() => {
     setExportMenuOpen(false);
@@ -251,6 +331,25 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
         if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
         e.preventDefault();
         goPrev();
+      } else if (navDirection === 'vertical' && (e.key === 'ArrowDown' || e.key === 'PageDown')) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        goNext();
+      } else if (navDirection === 'vertical' && (e.key === 'ArrowUp' || e.key === 'PageUp')) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === 'w' || e.key === 'W') {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        setDrawEnabled((prevDraw) => {
+          if (prevDraw) {
+            setColorPickerOpen(false);
+            return false;
+          }
+          setToolMode('pen');
+          return true;
+        });
       } else if (e.key === 'l' || e.key === 'L') {
         if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
         e.preventDefault();
@@ -269,13 +368,23 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goNext, goPrev, toggleFullscreen, toolMode]);
+  }, [goNext, goPrev, navDirection, toggleFullscreen, toolMode]);
 
   const updateSlideStrokes = useCallback(
-    (slideId: number, updater: (prevList: InkStroke[]) => InkStroke[]) => {
+    (
+      slideId: number,
+      updater: (prevList: InkStroke[]) => InkStroke[],
+      recordHistory = true,
+    ) => {
       const prevList = strokesRef.current[slideId] ?? [];
       const nextList = updater(prevList);
       if (nextList === prevList) return;
+      if (recordHistory) {
+        const prevHistory = undoHistoryRef.current[slideId] ?? [];
+        const nextHistory = [...prevHistory, prevList].slice(-40);
+        undoHistoryRef.current[slideId] = nextHistory;
+        setUndoCountBySlide((prev) => ({ ...prev, [slideId]: nextHistory.length }));
+      }
       const nextMap = { ...strokesRef.current, [slideId]: nextList };
       strokesRef.current = nextMap;
       setStrokesBySlide(nextMap);
@@ -288,8 +397,21 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     updateSlideStrokes(slide.id, (prev) => [...prev, stroke]);
   };
 
+  const handleEraseStrokes = (remainingStrokes: InkStroke[]) => {
+    updateSlideStrokes(slide.id, () => remainingStrokes);
+  };
+
   const handleUndoStroke = () => {
-    updateSlideStrokes(slide.id, (prev) => (prev.length === 0 ? prev : prev.slice(0, -1)));
+    const stack = undoHistoryRef.current[slide.id] ?? [];
+    if (stack.length > 0) {
+      const restored = stack[stack.length - 1];
+      const nextStack = stack.slice(0, -1);
+      undoHistoryRef.current[slide.id] = nextStack;
+      setUndoCountBySlide((prev) => ({ ...prev, [slide.id]: nextStack.length }));
+      updateSlideStrokes(slide.id, () => restored, false);
+      return;
+    }
+    updateSlideStrokes(slide.id, (prev) => (prev.length === 0 ? prev : prev.slice(0, -1)), false);
   };
 
   const handleClearSlideInk = () => {
@@ -298,6 +420,8 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
   const handleClearAllInk = () => {
     if (window.confirm('ต้องการล้างลายมือที่เขียนไว้ทั้งหมดทุกหน้าหรือไม่?')) {
+      undoHistoryRef.current = {};
+      setUndoCountBySlide({});
       strokesRef.current = {};
       setStrokesBySlide({});
       void clearDeckInk(DECK_ID, LEGACY_INK_STORAGE_KEY);
@@ -314,10 +438,60 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
   const scopedSlides =
     exportScope === 'lec1'
-      ? CH1_SLIDES.filter((s) => s.lecture === 1)
+      ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 1)
       : exportScope === 'lec2'
-        ? CH1_SLIDES.filter((s) => s.lecture === 2)
-        : CH1_SLIDES;
+        ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 2)
+        : CH1_VISIBLE_SLIDES;
+
+  const handleStageTouchStart = (e: ReactTouchEvent<HTMLElement>) => {
+    if (e.touches?.length !== 1) {
+      stageSwipeRef.current = null;
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-scene-3d],[data-floating-toolbar],button,input,a,label')) {
+      stageSwipeRef.current = null;
+      return;
+    }
+    const touch = e.touches[0] as Touch & { touchType?: string };
+    if (isStylusTouch(touch)) {
+      stageSwipeRef.current = null;
+      return;
+    }
+    stageSwipeRef.current = { x: touch.clientX, y: touch.clientY, t: performance.now() };
+  };
+
+  const handleStageTouchMove = (e: ReactTouchEvent<HTMLElement>) => {
+    if (e.touches?.length !== 1) {
+      stageSwipeRef.current = null;
+    }
+  };
+
+  const handleStageTouchEnd = (e: ReactTouchEvent<HTMLElement>) => {
+    const start = stageSwipeRef.current;
+    stageSwipeRef.current = null;
+    if (!start || e.changedTouches?.length !== 1) return;
+    const ct = e.changedTouches[0] as Touch & { touchType?: string };
+    if (isStylusTouch(ct)) return;
+    if (performance.now() - start.t > 900) return;
+
+    const dir = resolveSwipeDirection(ct.clientX - start.x, ct.clientY - start.y, navDirection);
+    if (dir === 'next') goNext();
+    else if (dir === 'prev') goPrev();
+  };
+
+  const handleStageWheel = (e: ReactWheelEvent<HTMLElement>) => {
+    if (navDirection !== 'vertical') return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-scene-3d],[data-floating-toolbar]')) return;
+    if (Math.abs(e.deltaY) < 24 || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+
+    const now = performance.now();
+    if (now - wheelCooldownRef.current < 300) return;
+    wheelCooldownRef.current = now;
+    if (e.deltaY > 0) goNext();
+    else goPrev();
+  };
 
   const triggerExportPdf = (withInk: boolean) => {
     setExportMenuOpen(false);
@@ -343,6 +517,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   };
 
   const currentStrokes = strokesBySlide[slide.id] ?? [];
+  const canUndo = (undoCountBySlide[slide.id] ?? 0) > 0 || currentStrokes.length > 0;
   const annotatedSlideCount = Object.values(strokesBySlide).filter(
     (list) => Array.isArray(list) && list.length > 0,
   ).length;
@@ -354,18 +529,18 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     <>
       <div className="print:hidden h-dvh w-screen overflow-hidden flex flex-col bg-slate-100 text-slate-900 select-none">
         {/* Top Control Bar */}
-        <header className="shrink-0 bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-1.5 z-30">
+        <header className="shrink-0 bg-white border-b border-slate-200 px-3 py-1.5 flex flex-wrap items-center justify-between gap-1 z-30">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs sm:text-sm font-bold text-slate-700 transition"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[15px] font-bold text-slate-700 transition"
             >
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline">3D Dashboard</span>
             </button>
 
-            <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+            <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[14px] font-semibold">
               <button
                 type="button"
                 onClick={() => setSlideIdx(0)}
@@ -388,36 +563,36 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           </div>
 
           {/* Always-Accessible Top Bar Prev / Page / Next Controls */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl">
             <button
               type="button"
               onClick={goPrev}
-              disabled={slideIdx === 0}
+              disabled={safeSlideIdx === 0}
               aria-label="หน้าก่อนหน้า"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-xs sm:text-sm font-bold text-slate-700 disabled:opacity-40 shadow-xs transition"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-[15px] font-bold text-slate-700 disabled:opacity-40 shadow-xs transition"
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="hidden sm:inline">ก่อนหน้า</span>
             </button>
-            <div className="px-2 sm:px-3 text-xs sm:text-sm font-mono font-bold text-slate-700">
-              หน้า {slideIdx + 1} / {totalSlides}
+            <div className="px-2 text-[15px] font-mono font-bold text-slate-700">
+              หน้า {safeSlideIdx + 1} / {totalSlides}
             </div>
             <button
               type="button"
               onClick={goNext}
-              disabled={slideIdx === totalSlides - 1}
+              disabled={safeSlideIdx === totalSlides - 1}
               aria-label="หน้าถัดไป"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold disabled:opacity-40 shadow-sm transition"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[15px] font-bold disabled:opacity-40 shadow-sm transition"
             >
               <span>ถัดไป</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1">
             {/* Projector Text Size Control */}
             <div
-              className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-xs font-bold"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-[14px] font-bold"
               title="ปรับขนาดตัวอักษรสำหรับฉายขึ้นจอ"
             >
               <button
@@ -425,11 +600,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 onClick={stepTextScaleDown}
                 disabled={textScale === 'normal'}
                 aria-label="ลดขนาดตัวอักษร"
-                className="px-2 py-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
+                className="px-2 py-0.5 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
               >
                 ก-
               </button>
-              <span className="hidden 2xl:inline px-1.5 text-[11px] font-semibold text-slate-500">
+              <span className="hidden 2xl:inline px-1.5 text-[13px] font-semibold text-slate-500">
                 {fs.labelTh}
               </span>
               <button
@@ -437,11 +612,41 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 onClick={stepTextScaleUp}
                 disabled={textScale === 'xlarge'}
                 aria-label="เพิ่มขนาดตัวอักษร"
-                className="px-2 py-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
+                className="px-2 py-0.5 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
               >
                 ก+
               </button>
             </div>
+
+            {/* Slide Navigation Direction Toggle (Horizontal / Vertical) */}
+            <button
+              type="button"
+              onClick={() =>
+                setNavDirection((d) => (d === 'horizontal' ? 'vertical' : 'horizontal'))
+              }
+              title={
+                navDirection === 'horizontal'
+                  ? 'โหมดปัด/เลื่อนแนวนอน (ปัดขวา = ถัดไป, ปัดซ้าย = ก่อนหน้า) — กดเพื่อสลับเป็นแนวตั้ง'
+                  : 'โหมดปัด/เลื่อนแนวตั้ง (ปัดขึ้น/หมุนลง = ถัดไป) — กดเพื่อสลับเป็นแนวนอน'
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[14px] font-bold transition ${
+                navDirection === 'vertical'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {navDirection === 'horizontal' ? (
+                <>
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">แนวนอน</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">แนวตั้ง</span>
+                </>
+              )}
+            </button>
 
             {/* Laser Pointer Toggle (Hotkey: L) */}
             <button
@@ -455,7 +660,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 }
               }}
               title="ชี้จุดสนใจด้วยเลเซอร์สีแดง (คีย์ลัด L)"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold transition ${
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[15px] font-bold transition ${
                 drawEnabled && toolMode === 'laser'
                   ? 'border-red-600 bg-red-600 text-white shadow-sm'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-red-50 hover:border-red-200'
@@ -485,7 +690,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   setColorPickerOpen(false);
                 }
               }}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold transition ${
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[15px] font-bold transition ${
                 drawEnabled && toolMode !== 'laser'
                   ? 'border-amber-500 bg-amber-500 text-white shadow-sm'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -501,7 +706,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             <button
               type="button"
               onClick={() => setOverviewOpen((o) => !o)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs sm:text-sm font-semibold transition ${
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[15px] font-semibold transition ${
                 overviewOpen
                   ? 'border-sky-500 bg-sky-50 text-sky-700'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -519,7 +724,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   setColorPickerOpen(false);
                   setExportMenuOpen((o) => !o);
                 }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm transition"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-[15px] font-bold shadow-sm transition"
               >
                 <FileDown className="w-4 h-4" />
                 <span>Export PDF</span>
@@ -621,244 +826,6 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           </div>
         </header>
 
-        {/* Optional Drawing Pen Toolbar */}
-        {drawEnabled && (
-          <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm z-30">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-bold text-amber-900">Apple Pencil:</span>
-              <div className="flex items-center gap-1.5">
-                {PEN_COLORS.map((c) => (
-                  <button
-                    key={c.color}
-                    type="button"
-                    onClick={() => {
-                      setToolMode('pen');
-                      setPenColor(c.color);
-                      setColorPickerOpen(false);
-                    }}
-                    title={c.label}
-                    className={`w-6 h-6 rounded-full border-2 transition ${
-                      toolMode === 'pen' && penColor === c.color
-                        ? 'border-amber-600 scale-110 shadow'
-                        : 'border-white'
-                    }`}
-                    style={{ backgroundColor: c.color }}
-                  />
-                ))}
-
-                {/* Expandable More Pen Colors Palette */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExportMenuOpen(false);
-                      setColorPickerOpen((o) => !o);
-                    }}
-                    title="เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง"
-                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-semibold border transition ${
-                      colorPickerOpen ||
-                      (toolMode === 'pen' && !PEN_COLORS.some((c) => c.color === penColor))
-                        ? 'border-amber-600 bg-amber-100 text-amber-950 shadow-xs'
-                        : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-50'
-                    }`}
-                  >
-                    <Palette className="w-3.5 h-3.5" />
-                    <span
-                      className="w-3 h-3 rounded-full border border-slate-300 shrink-0"
-                      style={{ backgroundColor: penColor }}
-                    />
-                    <span>สีเพิ่ม</span>
-                  </button>
-
-                  {colorPickerOpen && (
-                    <div className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-slate-200 bg-white shadow-xl p-3 z-50 space-y-2.5">
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                        <span>เลือกสีปากกา</span>
-                        <span className="font-mono text-[11px] uppercase text-slate-500">
-                          {penColor}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-6 gap-2">
-                        {EXTENDED_PEN_COLORS.map((c) => (
-                          <button
-                            key={c.color}
-                            type="button"
-                            onClick={() => {
-                              setToolMode('pen');
-                              setPenColor(c.color);
-                              setColorPickerOpen(false);
-                            }}
-                            title={c.label}
-                            aria-label={`เลือกสี${c.label}`}
-                            className={`w-7 h-7 rounded-full border-2 transition ${
-                              toolMode === 'pen' && penColor === c.color
-                                ? 'border-slate-900 scale-110 shadow'
-                                : 'border-white shadow-xs hover:scale-105'
-                            }`}
-                            style={{ backgroundColor: c.color }}
-                          />
-                        ))}
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
-                        <label
-                          htmlFor="custom-pen-color"
-                          className="text-xs font-semibold text-slate-700 cursor-pointer"
-                        >
-                          เลือกสีอิสระ:
-                        </label>
-                        <input
-                          id="custom-pen-color"
-                          type="color"
-                          value={penColor}
-                          onChange={(e) => {
-                            setToolMode('pen');
-                            setPenColor(e.target.value);
-                          }}
-                          className="h-7 w-14 rounded border border-slate-200 bg-white cursor-pointer"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 pl-2 border-l border-amber-200">
-                {[2, 4, 7].map((w) => (
-                  <button
-                    key={w}
-                    type="button"
-                    onClick={() => {
-                      setToolMode('pen');
-                      setPenWidth(w);
-                    }}
-                    className={`px-2 py-0.5 rounded-lg font-semibold border ${
-                      toolMode === 'pen' && penWidth === w
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : 'bg-white text-slate-700 border-amber-200'
-                    }`}
-                  >
-                    {w === 2 ? 'เล็ก' : w === 4 ? 'กลาง' : 'หนา'}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setColorPickerOpen(false);
-                  setToolMode((m) => (m === 'eraser' ? 'pen' : 'eraser'));
-                }}
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-semibold border ${
-                  toolMode === 'eraser'
-                    ? 'bg-rose-600 text-white border-rose-600'
-                    : 'bg-white text-slate-700 border-amber-200'
-                }`}
-              >
-                <Eraser className="w-3.5 h-3.5" /> ยางลบ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setColorPickerOpen(false);
-                  setToolMode((m) => (m === 'laser' ? 'pen' : 'laser'));
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg font-semibold border transition ${
-                  toolMode === 'laser'
-                    ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                    : 'bg-white text-red-700 border-red-200 hover:bg-red-50'
-                }`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    toolMode === 'laser' ? 'bg-white' : 'bg-red-500'
-                  }`}
-                />
-                เลเซอร์
-              </button>
-
-              {toolMode === 'laser' && (
-                <div className="inline-flex items-center rounded-lg border border-red-200 bg-white p-0.5 text-xs font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setLaserStyle('trail')}
-                    title="วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ"
-                    className={`px-2 py-0.5 rounded-md transition ${
-                      laserStyle === 'trail'
-                        ? 'bg-red-600 text-white shadow-xs'
-                        : 'text-red-700 hover:bg-red-50'
-                    }`}
-                  >
-                    วง/ขีดค้าง
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLaserStyle('dot')}
-                    title="เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา"
-                    className={`px-2 py-0.5 rounded-md transition ${
-                      laserStyle === 'dot'
-                        ? 'bg-red-600 text-white shadow-xs'
-                        : 'text-red-700 hover:bg-red-50'
-                    }`}
-                  >
-                    จุดชี้
-                  </button>
-                </div>
-              )}
-
-              {/* Palm Rejection Mode Toggle */}
-              <button
-                type="button"
-                onClick={() => setPencilOnly((p) => !p)}
-                title="สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย"
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-semibold border transition ${
-                  pencilOnly
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white text-slate-700 border-slate-300'
-                }`}
-              >
-                {pencilOnly ? (
-                  <>
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>กันฝ่ามือ: เฉพาะปากกา</span>
-                  </>
-                ) : (
-                  <>
-                    <Hand className="w-3.5 h-3.5" />
-                    <span>โหมดนิ้ว + ปากกา</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handleUndoStroke}
-                disabled={currentStrokes.length === 0}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
-              >
-                <RotateCcw className="w-3.5 h-3.5" /> ย้อนกลับ
-              </button>
-              <button
-                type="button"
-                onClick={handleClearSlideInk}
-                disabled={currentStrokes.length === 0}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> ล้างหน้านี้
-              </button>
-              <button
-                type="button"
-                onClick={handleClearAllInk}
-                disabled={annotatedSlideCount === 0}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> ล้างทุกหน้า
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Main Stage */}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
           {/* Overview Drawer */}
@@ -867,7 +834,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               <div className="text-xs sm:text-sm font-bold text-slate-600 px-1 pb-1">
                 สารบัญสไลด์บทที่ 1 ({totalSlides} หน้า)
               </div>
-              {CH1_SLIDES.map((s, idx) => {
+              {CH1_VISIBLE_SLIDES.map((s, idx) => {
                 const hasInk = (strokesBySlide[s.id]?.length ?? 0) > 0;
                 return (
                   <button
@@ -878,7 +845,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       setOverviewOpen(false);
                     }}
                     className={`w-full text-left px-2.5 py-2 rounded-xl border text-xs sm:text-sm transition ${
-                      idx === slideIdx
+                      idx === safeSlideIdx
                         ? 'border-sky-500 bg-sky-50 text-sky-900 font-bold'
                         : 'border-slate-100 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
                     }`}
@@ -894,20 +861,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             className="inline-block w-2 h-2 rounded-full bg-amber-500"
                           />
                         )}
-                        <span
-                          className={
-                            s.tagTh.includes('แนวข้อสอบ')
-                              ? 'text-rose-600 font-semibold'
-                              : undefined
-                          }
-                        >
-                          {s.tagTh.includes('แนวข้อสอบ')
-                            ? 'แนวข้อสอบ'
-                            : s.kind === 'example'
-                              ? 'โจทย์'
-                              : s.embed3D
-                                ? '3D'
-                                : 'เนื้อหา'}
+                        <span>
+                          {s.kind === 'example'
+                            ? 'โจทย์'
+                            : s.embed3D
+                              ? '3D'
+                              : 'เนื้อหา'}
                         </span>
                       </span>
                     </div>
@@ -919,24 +878,448 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           )}
 
           {/* Slide Canvas Container */}
-          <main className="slide-stage-wrapper flex-1 min-h-0 p-2 sm:p-3 flex items-center justify-center overflow-hidden">
-            <div className="slide-stage-box slide-prose relative rounded-3xl border border-slate-200 bg-white shadow-xl flex flex-col overflow-hidden">
+          <main
+            ref={stageWrapperRef}
+            onTouchStart={handleStageTouchStart}
+            onTouchMove={handleStageTouchMove}
+            onTouchEnd={handleStageTouchEnd}
+            onWheel={handleStageWheel}
+            className="slide-stage-wrapper flex-1 min-h-0 p-2 sm:p-3 flex items-center justify-center overflow-hidden relative"
+          >
+            {/* Floating Quick-Toggle when NOT in Write mode (zero layout shift) */}
+            {!drawEnabled && (
+              <div
+                data-floating-toolbar="true"
+                className="absolute bottom-3 right-3 z-40 flex items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawEnabled(true);
+                    setToolMode('pen');
+                  }}
+                  title="เข้าสู่โหมดเขียน (คีย์ลัด W)"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold shadow-sm transition active:scale-95"
+                >
+                  <PenTool className="w-4 h-4" />
+                  <span>เขียน</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawEnabled(true);
+                    setToolMode('laser');
+                  }}
+                  title="เปิดเลเซอร์ชี้จุด (คีย์ลัด L)"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-bold transition active:scale-95"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.85)]" />
+                  <span>เลเซอร์</span>
+                </button>
+              </div>
+            )}
+
+            {/* Floating Repositionable Write Toolbar when Write/Laser mode is active (zero layout shift) */}
+            {drawEnabled && (() => {
+              const isVertBar = toolbarPos === 'left' || toolbarPos === 'right';
+              const dockPosClass =
+                toolbarPos === 'top'
+                  ? 'top-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
+                  : toolbarPos === 'bottom'
+                    ? 'bottom-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
+                    : toolbarPos === 'left'
+                      ? 'left-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch'
+                      : 'right-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch';
+              const palettePopoverPosClass =
+                toolbarPos === 'bottom'
+                  ? 'bottom-full mb-2 left-0'
+                  : toolbarPos === 'top'
+                    ? 'top-full mt-2 left-0'
+                    : toolbarPos === 'left'
+                      ? 'left-full ml-2 top-0'
+                      : 'right-full mr-2 top-0';
+
+              return (
+                <div
+                  data-floating-toolbar="true"
+                  className={`absolute z-40 rounded-2xl border border-amber-300 bg-amber-50/95 backdrop-blur-md p-1.5 shadow-2xl flex gap-1.5 text-xs sm:text-sm ${dockPosClass}`}
+                >
+                  {/* Prominent 1-tap Exit Write Mode button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDrawEnabled(false);
+                      setColorPickerOpen(false);
+                    }}
+                    title="สลับกลับไปโหมดดู/หมุน 3D/เลื่อนหน้า (คีย์ลัด W)"
+                    className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm transition active:scale-95"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>เสร็จ/หมุน 3D</span>
+                  </button>
+
+                  {/* Color Swatches + Palette */}
+                  <div
+                    className={`flex items-center gap-1.5 ${
+                      isVertBar
+                        ? 'grid grid-cols-2 py-1 border-y border-amber-200/80 justify-items-center'
+                        : 'pl-1.5 border-l border-amber-200'
+                    }`}
+                  >
+                    {PEN_COLORS.map((c) => (
+                      <button
+                        key={c.color}
+                        type="button"
+                        onClick={() => {
+                          setToolMode('pen');
+                          setPenColor(c.color);
+                          setColorPickerOpen(false);
+                        }}
+                        title={c.label}
+                        className={`w-7 h-7 rounded-full border-2 transition ${
+                          toolMode === 'pen' && penColor === c.color
+                            ? 'border-amber-600 scale-110 shadow'
+                            : 'border-white'
+                        }`}
+                        style={{ backgroundColor: c.color }}
+                      />
+                    ))}
+
+                    <div className={`relative ${isVertBar ? 'col-span-2 w-full' : ''}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExportMenuOpen(false);
+                          setColorPickerOpen((o) => !o);
+                        }}
+                        title="เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง"
+                        className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-xl font-semibold border transition ${
+                          isVertBar ? 'w-full' : ''
+                        } ${
+                          colorPickerOpen ||
+                          (toolMode === 'pen' && !PEN_COLORS.some((c) => c.color === penColor))
+                            ? 'border-amber-600 bg-amber-100 text-amber-950 shadow-xs'
+                            : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-50'
+                        }`}
+                      >
+                        <Palette className="w-3.5 h-3.5" />
+                        <span
+                          className="w-3 h-3 rounded-full border border-slate-300 shrink-0"
+                          style={{ backgroundColor: penColor }}
+                        />
+                        <span>สีเพิ่ม</span>
+                      </button>
+
+                      {colorPickerOpen && (
+                        <div
+                          className={`absolute ${palettePopoverPosClass} w-64 rounded-2xl border border-slate-200 bg-white shadow-xl p-3 z-50 space-y-2.5`}
+                        >
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                            <span>เลือกสีปากกา</span>
+                            <span className="font-mono text-[11px] uppercase text-slate-500">
+                              {penColor}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-6 gap-2">
+                            {EXTENDED_PEN_COLORS.map((c) => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                onClick={() => {
+                                  setToolMode('pen');
+                                  setPenColor(c.color);
+                                  setColorPickerOpen(false);
+                                }}
+                                title={c.label}
+                                aria-label={`เลือกสี${c.label}`}
+                                className={`w-7 h-7 rounded-full border-2 transition ${
+                                  toolMode === 'pen' && penColor === c.color
+                                    ? 'border-slate-900 scale-110 shadow'
+                                    : 'border-white shadow-xs hover:scale-105'
+                                }`}
+                                style={{ backgroundColor: c.color }}
+                              />
+                            ))}
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+                            <label
+                              htmlFor="custom-pen-color"
+                              className="text-xs font-semibold text-slate-700 cursor-pointer"
+                            >
+                              เลือกสีอิสระ:
+                            </label>
+                            <input
+                              id="custom-pen-color"
+                              type="color"
+                              value={penColor}
+                              onChange={(e) => {
+                                setToolMode('pen');
+                                setPenColor(e.target.value);
+                              }}
+                              className="h-7 w-14 rounded border border-slate-200 bg-white cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Stroke / Eraser widths */}
+                  <div
+                    className={`flex items-center gap-1 ${
+                      isVertBar ? 'justify-center' : 'pl-1.5 border-l border-amber-200'
+                    }`}
+                    title={toolMode === 'eraser' ? 'ปรับขนาดยางลบ' : 'ปรับขนาดหัวปากกา'}
+                  >
+                    {(toolMode === 'eraser' ? [3, 6, 11] : [2, 4, 7]).map((w, idx) => {
+                      const label =
+                        idx === 0 ? 'เล็ก' : idx === 1 ? 'กลาง' : toolMode === 'eraser' ? 'ใหญ่' : 'หนา';
+                      const isSelected =
+                        toolMode === 'eraser'
+                          ? eraserSize === w
+                          : toolMode === 'pen' && penWidth === w;
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => {
+                            if (toolMode === 'eraser') {
+                              setEraserSize(w);
+                            } else {
+                              setToolMode('pen');
+                              setPenWidth(w);
+                            }
+                          }}
+                          className={`px-2 py-1 rounded-lg font-semibold border transition ${
+                            isSelected
+                              ? toolMode === 'eraser'
+                                ? 'bg-rose-600 text-white border-rose-600'
+                                : 'bg-amber-600 text-white border-amber-600'
+                              : 'bg-white text-slate-700 border-amber-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Eraser + Laser */}
+                  <div className={`flex items-center gap-1 ${isVertBar ? 'flex-col items-stretch' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setColorPickerOpen(false);
+                        setToolMode((m) => (m === 'eraser' ? 'pen' : 'eraser'));
+                      }}
+                      className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg font-semibold border ${
+                        toolMode === 'eraser'
+                          ? 'bg-rose-600 text-white border-rose-600'
+                          : 'bg-white text-slate-700 border-amber-200'
+                      }`}
+                    >
+                      <Eraser className="w-3.5 h-3.5" /> ยางลบ
+                    </button>
+                    {toolMode === 'eraser' && (
+                      <div className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-0.5 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setEraserMode('partial')}
+                          title="ลบเฉพาะบริเวณที่หัวยางลบลากผ่าน"
+                          className={`px-2 py-0.5 rounded-md transition ${
+                            eraserMode === 'partial'
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'text-rose-700 hover:bg-rose-50'
+                          }`}
+                        >
+                          ลบบางส่วน
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEraserMode('stroke')}
+                          title="แตะหรือลากผ่านเส้นไหน จะลบออกทั้งเส้น"
+                          className={`px-2 py-0.5 rounded-md transition ${
+                            eraserMode === 'stroke'
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'text-rose-700 hover:bg-rose-50'
+                          }`}
+                        >
+                          ลบทั้งเส้น
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setColorPickerOpen(false);
+                        setToolMode((m) => (m === 'laser' ? 'pen' : 'laser'));
+                      }}
+                      className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold border transition ${
+                        toolMode === 'laser'
+                          ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                          : 'bg-white text-red-700 border-red-200 hover:bg-red-50'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          toolMode === 'laser' ? 'bg-white' : 'bg-red-500'
+                        }`}
+                      />
+                      เลเซอร์
+                    </button>
+                    {toolMode === 'laser' && (
+                      <div className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white p-0.5 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setLaserStyle('trail')}
+                          title="วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ"
+                          className={`px-2 py-0.5 rounded-md transition ${
+                            laserStyle === 'trail'
+                              ? 'bg-red-600 text-white shadow-xs'
+                              : 'text-red-700 hover:bg-red-50'
+                          }`}
+                        >
+                          วง/ขีดค้าง
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLaserStyle('dot')}
+                          title="เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา"
+                          className={`px-2 py-0.5 rounded-md transition ${
+                            laserStyle === 'dot'
+                              ? 'bg-red-600 text-white shadow-xs'
+                              : 'text-red-700 hover:bg-red-50'
+                          }`}
+                        >
+                          จุดชี้
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Palm Rejection Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setPencilOnly((p) => !p)}
+                    title="สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย"
+                    className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg font-semibold border transition ${
+                      pencilOnly
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    {pencilOnly ? (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>{isVertBar ? 'เฉพาะปากกา' : 'กันฝ่ามือ: เฉพาะปากกา'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Hand className="w-3.5 h-3.5" />
+                        <span>{isVertBar ? 'นิ้ว+ปากกา' : 'โหมดนิ้ว + ปากกา'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Undo / Clear */}
+                  <div className={`flex items-center gap-1 ${isVertBar ? 'flex-col items-stretch' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={handleUndoStroke}
+                      disabled={!canUndo}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> ย้อนกลับ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSlideInk}
+                      disabled={currentStrokes.length === 0}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> ล้างหน้านี้
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAllInk}
+                      disabled={annotatedSlideCount === 0}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> ล้างทุกหน้า
+                    </button>
+                  </div>
+
+                  {/* Toolbar Dock Position Switcher */}
+                  <div
+                    className={`flex items-center gap-0.5 rounded-xl border border-amber-200 bg-white p-0.5 text-[11px] font-bold ${
+                      isVertBar ? 'grid grid-cols-2' : ''
+                    }`}
+                    title="ย้ายตำแหน่งแถบเครื่องมือเขียน"
+                  >
+                    {(
+                      [
+                        { id: 'top', label: 'บน' },
+                        { id: 'bottom', label: 'ล่าง' },
+                        { id: 'left', label: 'ซ้าย' },
+                        { id: 'right', label: 'ขวา' },
+                      ] as const
+                    ).map((pos) => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => {
+                          setColorPickerOpen(false);
+                          setToolbarPos(pos.id);
+                        }}
+                        className={`px-1.5 py-0.5 rounded-lg transition ${
+                          toolbarPos === pos.id
+                            ? 'bg-amber-500 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-amber-50'
+                        }`}
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Scaled Fixed-Resolution 1280x720 Slide Stage (Zero Ink Shift on Resize/Fullscreen) */}
+            <div
+              className="relative shrink-0"
+              style={{
+                width: Math.round(STAGE_WIDTH * stageScale),
+                height: Math.round(STAGE_HEIGHT * stageScale),
+              }}
+            >
+              <div
+                className="slide-prose relative rounded-3xl border border-slate-200 bg-white shadow-xl flex flex-col overflow-hidden"
+                style={{
+                  width: STAGE_WIDTH,
+                  height: STAGE_HEIGHT,
+                  transform: `scale(${stageScale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
               {/* Slide Header */}
-              <div className="shrink-0 px-5 sm:px-7 pt-3.5 pb-2.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4">
+              <div className="shrink-0 px-6 pt-2.5 pb-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-bold">
+                  <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
                     <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
                       01417168
                     </span>
                     <span className="text-sky-700">{slide.tagTh}</span>
-                    <span className="text-slate-400 hidden sm:inline">• {slide.tagEn}</span>
+                    <span className="text-slate-400">• {slide.tagEn}</span>
                     {slide.embed3D && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[16px]">
                         <Sparkles className="w-3.5 h-3.5" /> Interactive 3D
                       </span>
                     )}
                   </div>
-                  <h2 className={`${fs.title} font-extrabold text-slate-900 mt-1`}>
+                  <h2 className={`${fs.title} font-extrabold text-slate-900 mt-0.5`}>
                     {slide.titleTh}
                   </h2>
                   <p className={`${fs.subtitle} text-slate-500`}>
@@ -944,14 +1327,14 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   </p>
                 </div>
 
-                <div className="text-xs sm:text-sm font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 shrink-0">
-                  {slideIdx + 1} / {totalSlides}
+                <div className="text-[20px] font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 shrink-0">
+                  {safeSlideIdx + 1} / {totalSlides}
                 </div>
               </div>
 
               {/* Slide Body */}
               <div
-                className={`flex-1 min-h-0 p-4 sm:p-5 ${
+                className={`flex-1 min-h-0 p-3.5 ${
                   drawEnabled
                     ? 'overflow-hidden touch-none select-none'
                     : 'overflow-y-auto custom-scrollbar select-text'
@@ -960,21 +1343,21 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 {slide.kind === 'example' && slide.examples ? (
                   <div
                     className={`h-full flex flex-col ${
-                      slide.examples.length > 1 ? 'gap-2' : 'gap-3'
+                      slide.examples.length > 1 ? 'gap-2' : 'gap-2.5'
                     }`}
                   >
                     {slide.examples.map((ex, exIdx) => (
                       <div
                         key={exIdx}
                         className={`flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 ${
-                          slide.examples && slide.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-4 gap-2.5'
+                          slide.examples && slide.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-3.5 gap-2'
                         }`}
                       >
                         <div className="space-y-1.5">
                           <div className={`${fs.exPrompt} font-bold text-slate-900 leading-snug`}>
                             {ex.label && (
                               <span
-                                className={`mr-2 px-2.5 py-0.5 rounded-md text-xs sm:text-sm font-bold ${
+                                className={`mr-2 px-2.5 py-0.5 rounded-md text-[22px] font-bold ${
                                   ex.label.includes('แนวข้อสอบ')
                                     ? 'bg-rose-100 text-rose-800 border border-rose-200'
                                     : 'bg-sky-100 text-sky-800'
@@ -999,21 +1382,21 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             <div
                               className={`${ex.scene3D ? 'col-span-8 h-full' : 'flex-1'} ${
                                 slide.examples && slide.examples.length > 1
-                                  ? 'min-h-[60px]'
-                                  : 'min-h-[150px]'
+                                  ? 'min-h-[100px]'
+                                  : 'min-h-[180px]'
                               } rounded-2xl border border-dashed border-slate-300 bg-white p-3 flex items-end justify-end text-xs text-slate-400`}
                               style={{
                                 backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
                                 backgroundSize: '20px 20px',
                               }}
                             >
-                              เปิด “เขียนบนสไลด์” ด้านบนเพื่อเขียนวิธีทำสดด้วย Apple Pencil
+                              เปิด “เขียน” เพื่อเขียนวิธีทำสดด้วย Apple Pencil
                             </div>
                           );
 
                           if (!ex.scene3D) return writeArea;
                           return (
-                            <div className="flex-1 min-h-0 grid grid-cols-12 gap-2.5">
+                            <div className="flex-1 min-h-0 grid grid-cols-12 gap-3">
                               {writeArea}
                               <div className="col-span-4 min-h-0">
                                 <MiniScene3D
@@ -1031,16 +1414,16 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 ) : (
                   <div
                     className={`h-full grid gap-4 ${
-                      slide.embed3D ? 'grid-cols-1 md:grid-cols-12' : 'grid-cols-1'
+                      slide.embed3D ? 'grid-cols-12' : 'grid-cols-1'
                     }`}
                   >
                     <div
                       className={
                         slide.embed3D
-                          ? 'md:col-span-6 flex flex-col justify-center gap-3'
+                          ? 'col-span-6 flex flex-col justify-center gap-2.5'
                           : slide.kind === 'summary'
-                            ? 'grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch'
-                            : 'flex flex-col justify-center gap-3'
+                            ? 'grid grid-cols-2 gap-3 items-stretch'
+                            : 'flex flex-col justify-center gap-2.5'
                       }
                     >
                       {slide.cards?.map((card, cIdx) => (
@@ -1048,8 +1431,8 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           key={cIdx}
                           className={`rounded-2xl border border-slate-200 bg-slate-50/70 ${
                             slide.kind === 'summary'
-                              ? 'p-3.5 space-y-1.5 flex flex-col justify-between'
-                              : 'p-4 space-y-2'
+                              ? 'p-3 space-y-1 flex flex-col justify-between'
+                              : 'p-3.5 space-y-1.5'
                           }`}
                         >
                           <div className={`${fs.cardHeading} font-bold text-slate-800`}>
@@ -1057,7 +1440,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           </div>
                           {card.bullets && (
                             <ul
-                              className={`space-y-1.5 ${fs.bullet} text-slate-700 list-disc pl-6 leading-relaxed`}
+                              className={`space-y-1 ${fs.bullet} text-slate-700 list-disc pl-6 leading-snug`}
                             >
                               {card.bullets.map((b, bIdx) => (
                                 <li key={bIdx}>
@@ -1069,15 +1452,13 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           {card.formulas && (
                             <div
                               className={
-                                card.formulaCols === 2
-                                  ? 'grid grid-cols-1 sm:grid-cols-2 gap-2.5'
-                                  : 'space-y-2'
+                                card.formulaCols === 2 ? 'grid grid-cols-2 gap-2' : 'space-y-1.5'
                               }
                             >
                               {card.formulas.map((f, fIdx) => (
                                 <div
                                   key={fIdx}
-                                  className={`rounded-xl border px-3.5 py-2 ${toneClasses(f.tone)}`}
+                                  className={`rounded-xl border px-3 py-1.5 ${toneClasses(f.tone)}`}
                                 >
                                   {f.label && (
                                     <div className={`${fs.formulaLabel} font-semibold opacity-75 mb-0.5`}>
@@ -1086,9 +1467,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                                   )}
                                   <div
                                     className={`overflow-x-auto overflow-y-hidden leading-normal py-0.5 ${
-                                      slide.kind === 'summary'
-                                        ? 'text-base sm:text-lg lg:text-[1.12rem]'
-                                        : fs.formula
+                                      slide.kind === 'summary' ? 'text-[22px]' : fs.formula
                                     }`}
                                   >
                                     <KaTeX math={f.latex} />
@@ -1109,7 +1488,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     </div>
 
                     {slide.embed3D && (
-                      <div className="md:col-span-6 min-h-[260px]">
+                      <div className="col-span-6 min-h-[260px]">
                         <MiniScene3D embed={slide.embed3D} hintTh={slide.embedHintTh} />
                       </div>
                     )}
@@ -1124,10 +1503,16 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 pencilOnly={pencilOnly}
                 penColor={penColor}
                 penWidth={penWidth}
+                eraserSize={eraserSize}
+                eraserMode={eraserMode}
                 toolMode={toolMode}
                 laserStyle={laserStyle}
+                navDirection={navDirection}
                 onAddStroke={handleAddStroke}
+                onEraseStrokes={handleEraseStrokes}
+                onFingerSwipe={(dir) => (dir === 'next' ? goNext() : goPrev())}
               />
+              </div>
             </div>
           </main>
         </div>
@@ -1137,7 +1522,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           <button
             type="button"
             onClick={goPrev}
-            disabled={slideIdx === 0}
+            disabled={safeSlideIdx === 0}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs sm:text-sm font-bold text-slate-700 disabled:opacity-40 transition"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -1148,18 +1533,18 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
               <div
                 className="h-full bg-sky-600 transition-all duration-200"
-                style={{ width: `${((slideIdx + 1) / totalSlides) * 100}%` }}
+                style={{ width: `${((safeSlideIdx + 1) / totalSlides) * 100}%` }}
               />
             </div>
             <div className="text-xs font-semibold text-slate-600">
-              หน้า {slideIdx + 1} / {totalSlides} • คาบที่ {slide.lecture}
+              หน้า {safeSlideIdx + 1} / {totalSlides} • คาบที่ {slide.lecture}
             </div>
           </div>
 
           <button
             type="button"
             onClick={goNext}
-            disabled={slideIdx === totalSlides - 1}
+            disabled={safeSlideIdx === totalSlides - 1}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold shadow-sm disabled:opacity-40 transition"
           >
             <span>ถัดไป</span>

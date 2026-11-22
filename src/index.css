@@ -3,7 +3,15 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --font-sans: 'TH SarabunPSK', 'TH Sarabun New', 'Sarabun', system-ui, sans-serif;
+}
+
 @layer base {
+  html {
+    font-size: 20px;
+  }
+
   html,
   body,
   #root {
@@ -12,7 +20,7 @@
     margin: 0;
     padding: 0;
     overscroll-behavior: none;
-    font-family: 'Inter', 'IBM Plex Sans Thai', system-ui, -apple-system, sans-serif;
+    font-family: 'TH SarabunPSK', 'TH Sarabun New', 'Sarabun', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
@@ -104,25 +112,13 @@ input[type="range"]::-moz-range-thumb {
   font-size: 1.05em;
 }
 
-/* Responsive 16:9 slide stage for projectors & iPad (exact match to 16:9 PDF export) */
+/* Fixed 1280x720 slide stage scaled uniformly in SlidesDeck (matches 16:9 PDF export) */
 .slide-stage-wrapper {
   container-type: size;
 }
 
-.slide-stage-box {
-  width: 100%;
-  height: 100%;
-}
-
-@media (min-width: 768px) {
-  .slide-stage-box {
-    width: min(100cqw, calc(100cqh * 16 / 9), 1520px);
-    height: min(100cqh, calc(100cqw * 9 / 16), 855px);
-  }
-}
-
 .slide-prose .katex {
-  font-size: 1.12em;
+  font-size: 0.86em;
 }
 
 /* 16:9 Slide PDF Export Rules */

@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent } from 'react';
 import {
+  doesSegmentHitStroke,
   drawStrokeOnContext,
+  isStylusTouch,
+  resolveSwipeDirection,
   type AnnotationTool,
+  type EraserMode,
   type InkStroke,
   type LaserStyle,
+  type NavDirection,
 } from '../../slides/inkUtils';
 
 export type { InkStroke };
@@ -15,9 +20,14 @@ interface AnnotationCanvasProps {
   pencilOnly: boolean;
   penColor: string;
   penWidth: number;
+  eraserSize?: number;
+  eraserMode?: EraserMode;
   toolMode: AnnotationTool;
   laserStyle: LaserStyle;
+  navDirection?: NavDirection;
   onAddStroke: (stroke: InkStroke) => void;
+  onEraseStrokes?: (remainingStrokes: InkStroke[]) => void;
+  onFingerSwipe?: (dir: 'next' | 'prev') => void;
 }
 
 const LASER_HOLD_MS = 900;
@@ -77,14 +87,26 @@ export function AnnotationCanvas({
   pencilOnly,
   penColor,
   penWidth,
+  eraserSize = 6,
+  eraserMode = 'partial',
   toolMode,
   laserStyle,
+  navDirection = 'horizontal',
   onAddStroke,
+  onEraseStrokes,
+  onFingerSwipe,
 }: AnnotationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const laserCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeStrokeRef = useRef<InkStroke | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
+  const lastEraserPtRef = useRef<[number, number] | null>(null);
+  const strokesLatestRef = useRef<InkStroke[]>(strokes);
+  const touchSwipeRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
+  useEffect(() => {
+    strokesLatestRef.current = strokes;
+  }, [strokes]);
 
   const laserStrokesRef = useRef<Array<Array<[number, number]>>>([]);
   const activeLaserStrokeRef = useRef<Array<[number, number]> | null>(null);
@@ -243,6 +265,7 @@ export function AnnotationCanvas({
     if (!drawEnabled) {
       activePointerIdRef.current = null;
       activeStrokeRef.current = null;
+      lastEraserPtRef.current = null;
     }
   }, [drawEnabled, toolMode, laserStyle]);
 
@@ -312,9 +335,21 @@ export function AnnotationCanvas({
       return;
     }
 
+    if (toolMode === 'eraser' && eraserMode === 'stroke') {
+      lastEraserPtRef.current = pt;
+      const radiusPx = (eraserSize * 4.5) / 2;
+      const cur = strokesLatestRef.current;
+      const next = cur.filter((st) => !doesSegmentHitStroke(pt, pt, st, radiusPx));
+      if (next.length !== cur.length) {
+        strokesLatestRef.current = next;
+        onEraseStrokes?.(next);
+      }
+      return;
+    }
+
     const stroke: InkStroke = {
       color: penColor,
-      width: penWidth,
+      width: toolMode === 'eraser' ? eraserSize : penWidth,
       isEraser: toolMode === 'eraser',
       points: [pt],
     };
@@ -364,6 +399,40 @@ export function AnnotationCanvas({
         }
       }
       ensureLaserLoop();
+      return;
+    }
+
+    if (toolMode === 'eraser' && eraserMode === 'stroke') {
+      if (activePointerIdRef.current !== e.pointerId || !lastEraserPtRef.current) {
+        return;
+      }
+      e.preventDefault();
+      const coalesced =
+        typeof nativeEvt.getCoalescedEvents === 'function'
+          ? nativeEvt.getCoalescedEvents()
+          : [nativeEvt];
+      const samples = coalesced.length > 0 ? coalesced : [nativeEvt];
+      const radiusPx = (eraserSize * 4.5) / 2;
+      let prevPt = lastEraserPtRef.current;
+      let cur = strokesLatestRef.current;
+      let changed = false;
+
+      for (const sample of samples) {
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
+        const filtered = cur.filter(
+          (st) => !doesSegmentHitStroke(prevPt, nextPt, st, radiusPx),
+        );
+        if (filtered.length !== cur.length) {
+          cur = filtered;
+          changed = true;
+        }
+        prevPt = nextPt;
+      }
+      lastEraserPtRef.current = prevPt;
+      if (changed) {
+        strokesLatestRef.current = cur;
+        onEraseStrokes?.(cur);
+      }
       return;
     }
 
@@ -434,6 +503,7 @@ export function AnnotationCanvas({
       // ignore if capture was already released
     }
     activePointerIdRef.current = null;
+    lastEraserPtRef.current = null;
 
     if (toolMode === 'laser') {
       laserActiveTipRef.current = null;
@@ -459,6 +529,41 @@ export function AnnotationCanvas({
     }
   };
 
+  const handleTouchStart = (e: ReactTouchEvent<HTMLCanvasElement>) => {
+    if (!drawEnabled || !pencilOnly || !onFingerSwipe) return;
+    if (e.touches?.length !== 1) {
+      touchSwipeRef.current = null;
+      return;
+    }
+    const touch = e.touches[0] as Touch & { touchType?: string };
+    if (isStylusTouch(touch)) {
+      touchSwipeRef.current = null;
+      return;
+    }
+    touchSwipeRef.current = { x: touch.clientX, y: touch.clientY, t: performance.now() };
+  };
+
+  const handleTouchMove = (e: ReactTouchEvent<HTMLCanvasElement>) => {
+    if (e.touches?.length !== 1) {
+      touchSwipeRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = (e: ReactTouchEvent<HTMLCanvasElement>) => {
+    const start = touchSwipeRef.current;
+    touchSwipeRef.current = null;
+    if (!start || !drawEnabled || !pencilOnly || !onFingerSwipe) return;
+    if (e.changedTouches?.length !== 1) return;
+    const ct = e.changedTouches[0] as Touch & { touchType?: string };
+    if (isStylusTouch(ct)) return;
+    if (performance.now() - start.t > 900) return;
+
+    const dir = resolveSwipeDirection(ct.clientX - start.x, ct.clientY - start.y, navDirection);
+    if (dir) {
+      onFingerSwipe(dir);
+    }
+  };
+
   return (
     <>
       <canvas
@@ -468,6 +573,12 @@ export function AnnotationCanvas({
         onPointerUp={finishStroke}
         onPointerCancel={finishStroke}
         onPointerLeave={handlePointerLeave}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => {
+          touchSwipeRef.current = null;
+        }}
         style={
           drawEnabled
             ? {

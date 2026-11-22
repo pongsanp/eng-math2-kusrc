@@ -59,6 +59,7 @@ export interface SlideExampleItem {
   promptTh: string;
   promptLatex?: string;
   scene3D?: SlideExampleScene3D;
+  isExamDrill?: boolean;
 }
 
 export interface SlideDef {
@@ -69,6 +70,9 @@ export interface SlideDef {
   tagEn: string;
   titleTh: string;
   titleEn: string;
+  tagThPublic?: string;
+  titleThPublic?: string;
+  isExamDrill?: boolean;
   subtitle?: string;
   cards?: SlideSectionCard[];
   embed3D?: SlideEmbed3DKind;
@@ -76,6 +80,8 @@ export interface SlideDef {
   examples?: SlideExampleItem[];
   writeHeightHint?: 'compact' | 'tall';
 }
+
+export const SHOW_EXAM_DRILLS = false;
 
 export const CH1_SLIDES: SlideDef[] = [
   // ==================== LECTURE 1 (Slides 1 - 18) ====================
@@ -270,6 +276,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 7,
     lecture: 1,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 1 • แนวข้อสอบ 1.4',
     tagEn: 'Exam Drill: Position Vectors & Linear Eq.',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: จุดยอดสี่เหลี่ยมด้านขนานและสมการเวกเตอร์',
@@ -453,6 +460,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 13,
     lecture: 1,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 1 • แนวข้อสอบ 1.5–1.6',
     tagEn: 'Exam Drill: Magnitude & Unit Vectors',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: หาตัวแปรจากขนาดและปรับขนาดเวกเตอร์',
@@ -545,6 +553,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 16,
     lecture: 1,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 1 • แนวข้อสอบ 1.7',
     tagEn: 'Exam Drill: Dot Product & Orthogonality',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: ผลคูณจุด เงื่อนไขตั้งฉาก และสมบัติพีชคณิต',
@@ -603,8 +612,10 @@ export const CH1_SLIDES: SlideDef[] = [
     lecture: 1,
     kind: 'example',
     tagTh: 'คาบที่ 1 • แนวข้อสอบมุมทิศทาง',
+    tagThPublic: 'คาบที่ 1 • ตัวอย่างมุมทิศทาง',
     tagEn: 'Exam Drill: Direction Angles & Cosines',
     titleTh: 'ตัวอย่าง & แนวข้อสอบ: โคไซน์และมุมบอกทิศทาง (α, β, γ)',
+    titleThPublic: 'ตัวอย่าง: โคไซน์และมุมบอกทิศทาง (α, β, γ)',
     titleEn: 'Computing Direction Angles & Missing Third Angle',
     writeHeightHint: 'compact',
     examples: [
@@ -619,6 +630,7 @@ export const CH1_SLIDES: SlideDef[] = [
       },
       {
         label: 'แนวข้อสอบ',
+        isExamDrill: true,
         promptTh:
           'เวกเตอร์หนึ่งหน่วย $\\hat{u}$ ทำมุม $\\alpha = 60^\\circ$ กับแกน $+x$ และทำมุม $\\beta = 45^\\circ$ กับแกน $+y$ จงหาค่ามุม $\\gamma$ ที่เป็นไปได้ทั้งหมด และเขียน $\\hat{u}$ ในรูปส่วนประกอบ',
       },
@@ -685,6 +697,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 21,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบ 1.8',
     tagEn: 'Exam Drill: Orthogonal Decomposition & Work',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: แยกเวกเตอร์ขนาน–ตั้งฉาก และงานของแรง',
@@ -762,8 +775,10 @@ export const CH1_SLIDES: SlideDef[] = [
     lecture: 2,
     kind: 'example',
     tagTh: 'คาบที่ 2 • แนวข้อสอบ Cross Product (2)',
+    tagThPublic: 'คาบที่ 2 • ตัวอย่าง Cross Product (2)',
     tagEn: 'Cross Product Drill: Unit Normal & Algebra',
     titleTh: 'ตัวอย่าง & แนวข้อสอบ: เวกเตอร์ตั้งฉากหนึ่งหน่วยและสมบัติผลคูณไขว้',
+    titleThPublic: 'ตัวอย่าง: เวกเตอร์ตั้งฉากหนึ่งหน่วย',
     titleEn: 'Unit Orthogonal Vectors & Algebraic Cross Product',
     writeHeightHint: 'compact',
     examples: [
@@ -782,6 +797,7 @@ export const CH1_SLIDES: SlideDef[] = [
       },
       {
         label: 'แนวข้อสอบ',
+        isExamDrill: true,
         promptTh:
           'กำหนดให้ $\\vec{u}\\times\\vec{v} = \\langle 2, -3, 1 \\rangle$ จงหาค่าของ $(2\\vec{u} + 3\\vec{v})\\times(\\vec{u} - \\vec{v})$ โดยใช้สมบัติของผลคูณไขว้',
       },
@@ -863,6 +879,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 27,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบ Cross Product (4)',
     tagEn: 'Exam Drill: Triangle Height & Parallelism',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: พื้นที่ ความสูงสามเหลี่ยม และเงื่อนไขขนาน',
@@ -938,6 +955,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 30,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบ 1.10',
     tagEn: 'Exam Drill: Coplanar Points & Volume',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: จุดร่วมระนาบ (Coplanar) และหาตัวแปรจากปริมาตร',
@@ -1090,6 +1108,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 35,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบเส้นตรง (1)',
     tagEn: 'Exam Drill: Intersecting vs Skew Lines',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: จุดตัดของเส้นตรงและเส้นตรงไขว้ต่างระนาบ',
@@ -1107,6 +1126,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 36,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบเส้นตรง (2)',
     tagEn: 'Exam Drill: Line Orthogonal to Two Lines',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: เส้นตรงที่ตั้งฉากกับเส้นตรง 2 เส้น',
@@ -1124,6 +1144,7 @@ export const CH1_SLIDES: SlideDef[] = [
     id: 37,
     lecture: 2,
     kind: 'example',
+    isExamDrill: true,
     tagTh: 'คาบที่ 2 • แนวข้อสอบเส้นตรง (3)',
     tagEn: 'Exam Drill: Coordinate Intercepts & Distance',
     titleTh: 'ฝึกโจทย์แนวข้อสอบ: จุดตัดระนาบพิกัดและระยะห่างจุดถึงเส้นตรง',
@@ -1199,3 +1220,41 @@ export const CH1_SLIDES: SlideDef[] = [
     ],
   },
 ];
+
+const RAW_VISIBLE_SLIDES: SlideDef[] = SHOW_EXAM_DRILLS
+  ? CH1_SLIDES
+  : CH1_SLIDES.filter((s) => !s.isExamDrill).map((s) => {
+      const filteredExamples = s.examples?.filter((ex) => !ex.isExamDrill);
+      return {
+        ...s,
+        tagTh: s.tagThPublic ?? s.tagTh,
+        titleTh: s.titleThPublic ?? s.titleTh,
+        ...(filteredExamples ? { examples: filteredExamples } : {}),
+      };
+    });
+
+const VISIBLE_TOTAL = RAW_VISIBLE_SLIDES.length;
+const VISIBLE_LEC1_COUNT = RAW_VISIBLE_SLIDES.filter((s) => s.lecture === 1).length;
+
+export const CH1_VISIBLE_SLIDES: SlideDef[] = RAW_VISIBLE_SLIDES.map((s) => {
+  if (s.id !== 1 || SHOW_EXAM_DRILLS) return s;
+  return {
+    ...s,
+    cards: [
+      {
+        heading: `แผนการเรียนบทที่ 1 (2 คาบเรียน • ${VISIBLE_TOTAL} หน้า)`,
+        bullets: [
+          `คาบที่ 1 (หน้า 1–${VISIBLE_LEC1_COUNT}): ระบบพิกัด 3 มิติ, เวกเตอร์, การดำเนินการ, ขนาด, เวกเตอร์หนึ่งหน่วย, ผลคูณจุด (Dot Product) และมุมทิศทาง`,
+          `คาบที่ 2 (หน้า ${VISIBLE_LEC1_COUNT + 1}–${VISIBLE_TOTAL}): การฉายเชิงตั้งฉาก (Projection), ผลคูณไขว้ (Cross Product), พื้นที่, ผลคูณ 3 เวกเตอร์ และสมการเส้นตรง 3 มิติ`,
+        ],
+      },
+      {
+        heading: 'วิธีใช้งานสไลด์นี้ในการเรียนการสอน',
+        bullets: [
+          'หน้าเนื้อหาและตัวอย่างที่มีกล่อง 3 มิติ: ใช้นิ้วหรือเมาส์หมุนดูทิศทางได้ทันทีกลางหน้าสไลด์',
+          'หน้าโจทย์ตัวอย่าง: เว้นกระดานจุดสำหรับเขียนสดด้วย Apple Pencil (รองรับกันฝ่ามือ + เลเซอร์ 2 แบบ) และ Export PDF รวมลายมือแจกนิสิตได้ทันที',
+        ],
+      },
+    ],
+  };
+});

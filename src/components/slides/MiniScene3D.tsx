@@ -319,7 +319,10 @@ export function MiniScene3D({ embed, customScene, hintTh, compact = false }: Min
   };
 
   return (
-    <div className="h-full flex flex-col rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner">
+    <div
+      data-scene-3d="true"
+      className="h-full flex flex-col rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden shadow-inner"
+    >
       {/* 3D Canvas */}
       <div className={`relative flex-1 ${compact ? 'min-h-[64px]' : 'min-h-[210px]'}`}>
         <div
