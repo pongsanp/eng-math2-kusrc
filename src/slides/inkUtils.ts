@@ -126,6 +126,27 @@ export function resolveSwipeDirection(
   return null;
 }
 
+export interface InAppBrowserInfo {
+  isInApp: boolean;
+  appName: string | null;
+}
+
+/** Detect common in-app WebViews (LINE, Facebook, Instagram, TikTok, etc.) where window.print() is often blocked. */
+export function detectInAppBrowser(userAgent?: string): InAppBrowserInfo {
+  const ua = userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : '');
+  if (!ua) return { isInApp: false, appName: null };
+  if (/\bLine\//i.test(ua)) return { isInApp: true, appName: 'LINE' };
+  if (/FBAN|FBAV|FB_IAB|Messenger/i.test(ua)) {
+    return { isInApp: true, appName: 'Facebook / Messenger' };
+  }
+  if (/Instagram/i.test(ua)) return { isInApp: true, appName: 'Instagram' };
+  if (/BytedanceWebview|musical_ly|TikTok/i.test(ua)) return { isInApp: true, appName: 'TikTok' };
+  if (/Discord/i.test(ua)) return { isInApp: true, appName: 'Discord' };
+  if (/MicroMessenger/i.test(ua)) return { isInApp: true, appName: 'WeChat' };
+  if (/; wv\)/i.test(ua)) return { isInApp: true, appName: 'เบราว์เซอร์ในแอป' };
+  return { isInApp: false, appName: null };
+}
+
 export interface InkStroke {
   color: string;
   width: number;

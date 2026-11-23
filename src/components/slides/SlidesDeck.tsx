@@ -4,13 +4,16 @@ import type {
   TouchEvent as ReactTouchEvent,
   WheelEvent as ReactWheelEvent,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowLeftRight,
   ArrowUpDown,
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Eraser,
   FileDown,
   GripVertical,
@@ -24,6 +27,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   CH1_VISIBLE_SLIDES,
@@ -34,6 +38,7 @@ import { clearDeckInk, loadDeckInk, saveSlideInk } from '../../slides/inkStorage
 import { KaTeX } from '../KaTeX';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import {
+  detectInAppBrowser,
   isStylusTouch,
   renderStrokesToDataUrl,
   resolveSwipeDirection,
@@ -235,6 +240,18 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   const [printIncludeInk, setPrintIncludeInk] = useState(false);
   const [inkImagesBySlide, setInkImagesBySlide] = useState<Record<number, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [exportBlockedMessage, setExportBlockedMessage] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const printFallbackTimerRef = useRef<number | null>(null);
+  const inAppBrowser = detectInAppBrowser();
+
+  useEffect(() => {
+    return () => {
+      if (printFallbackTimerRef.current !== null) {
+        window.clearTimeout(printFallbackTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -609,10 +626,52 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
     });
   };
 
+  const copyCurrentUrl = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2500);
+    } catch {
+      window.prompt('คัดลอกลิงก์ด้านล่างไปเปิดใน Safari หรือ Chrome:', window.location.href);
+    }
+  }, []);
+
+  const invokePrintWithFallbackCheck = useCallback(() => {
+    if (printFallbackTimerRef.current !== null) {
+      window.clearTimeout(printFallbackTimerRef.current);
+      printFallbackTimerRef.current = null;
+    }
+    let beforePrintFired = false;
+    const onBeforePrint = () => {
+      beforePrintFired = true;
+      setExportBlockedMessage(null);
+    };
+    window.addEventListener('beforeprint', onBeforePrint, { once: true });
+
+    const startedAt = performance.now();
+    try {
+      window.print();
+    } catch {
+      // Restricted WebViews may throw synchronously on window.print()
+    }
+    const elapsed = performance.now() - startedAt;
+
+    printFallbackTimerRef.current = window.setTimeout(() => {
+      window.removeEventListener('beforeprint', onBeforePrint);
+      printFallbackTimerRef.current = null;
+      if (!beforePrintFired && elapsed < 400 && document.visibilityState === 'visible') {
+        setExportBlockedMessage(
+          inAppBrowser.isInApp
+            ? `ตรวจพบการเปิดผ่านเบราว์เซอร์ของ ${inAppBrowser.appName ?? 'แอปภายนอก'} ซึ่งมักปิดคำสั่ง Export PDF — กรุณากดเมนู (⋮ หรือ แชร์) แล้วเลือก "เปิดใน Safari" หรือ "เปิดใน Chrome" หรือคัดลอกลิงก์ไปเปิดในเบราว์เซอร์โดยตรง`
+            : 'เบราว์เซอร์นี้ไม่อนุญาตหรือบล็อกหน้าต่าง Export PDF — แนะนำให้คัดลอกลิงก์ไปเปิดใน Safari หรือ Chrome โดยตรง หรือลองกดเมนูแชร์ของเบราว์เซอร์ → พิมพ์/บันทึกเป็น PDF',
+        );
+      }
+    }, 1100);
+  }, [inAppBrowser.appName, inAppBrowser.isInApp]);
+
   const triggerExportPdf = async (withInk: boolean) => {
-    setExportMenuOpen(false);
+    const generated: Record<number, string> = {};
     if (withInk) {
-      const generated: Record<number, string> = {};
       for (const s of scopedSlides) {
         const list = strokesBySlide[s.id];
         if (list && list.length > 0) {
@@ -620,17 +679,26 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           if (url) generated[s.id] = url;
         }
       }
-      setInkImagesBySlide(generated);
-      setPrintIncludeInk(true);
-    } else {
-      setPrintIncludeInk(false);
     }
-    await exitFullscreenBeforePrint();
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        window.print();
-      }, 180);
+
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    const inFullscreen = Boolean(doc.fullscreenElement || doc.webkitFullscreenElement);
+
+    flushSync(() => {
+      setExportMenuOpen(false);
+      setExportBlockedMessage(null);
+      if (withInk) {
+        setInkImagesBySlide(generated);
+        setPrintIncludeInk(true);
+      } else {
+        setPrintIncludeInk(false);
+      }
     });
+
+    if (inFullscreen) {
+      await exitFullscreenBeforePrint();
+    }
+    invokePrintWithFallbackCheck();
   };
 
   const currentStrokes = strokesBySlide[slide.id] ?? [];
@@ -849,6 +917,28 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
 
               {exportMenuOpen && (
                 <div className="absolute right-0 mt-1.5 w-80 rounded-2xl border border-slate-200 bg-white shadow-xl p-2.5 z-50 text-xs sm:text-sm space-y-2">
+                  {inAppBrowser.isInApp && (
+                    <div className="px-2.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-[11px] leading-snug text-rose-900 space-y-1.5">
+                      <div className="flex items-start gap-1.5 font-bold">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
+                        <span>
+                          เปิดผ่านแอป {inAppBrowser.appName ?? 'ภายนอก'} อาจกด Export PDF ไม่ขึ้น
+                        </span>
+                      </div>
+                      <div className="text-rose-800">
+                        กรุณากดเมนู (⋮ / แชร์) แล้วเลือก <b>เปิดใน Safari / Chrome</b>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void copyCurrentUrl()}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold hover:bg-rose-100 transition"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>{linkCopied ? 'คัดลอกลิงก์แล้ว ✓' : 'คัดลอกลิงก์เว็บ'}</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div>
                     <div className="text-[11px] font-bold text-slate-500 px-1 mb-1">
                       เลือกช่วงสไลด์ที่จะส่งออก:
@@ -948,6 +1038,36 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             </button>
           </div>
         </header>
+
+        {exportBlockedMessage && (
+          <div
+            role="alert"
+            className="shrink-0 bg-rose-50 border-b border-rose-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-rose-900 z-25"
+          >
+            <div className="flex items-start gap-2 flex-1 min-w-0">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+              <span className="font-semibold leading-snug">{exportBlockedMessage}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => void copyCurrentUrl()}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold hover:bg-rose-100 transition"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{linkCopied ? 'คัดลอกลิงก์แล้ว ✓' : 'คัดลอกลิงก์ไปเปิดใน Safari/Chrome'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setExportBlockedMessage(null)}
+                aria-label="ปิดคำแนะนำ Export PDF"
+                className="p-1 rounded-lg text-rose-700 hover:bg-rose-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Main Stage */}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
