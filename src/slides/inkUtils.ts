@@ -4,6 +4,39 @@ export type LaserStyle = 'trail' | 'dot';
 export type PrintScope = 'all' | 'lec1' | 'lec2';
 export type NavDirection = 'horizontal' | 'vertical';
 export type ToolbarDock = 'top' | 'bottom' | 'left' | 'right';
+export type SlideLang = 'th' | 'en';
+
+export const SLIDE_LANG_STORAGE_KEY = 'eng_math_2_slide_lang';
+
+export function resolveInitialSlideLang(): SlideLang {
+  if (typeof window === 'undefined') return 'th';
+  try {
+    const param = new URLSearchParams(window.location.search).get('lang')?.toLowerCase();
+    if (param === 'en') return 'en';
+    if (param === 'th') return 'th';
+    const saved = window.localStorage.getItem(SLIDE_LANG_STORAGE_KEY);
+    if (saved === 'en') return 'en';
+  } catch {
+    // Ignore storage/URL parsing errors
+  }
+  return 'th';
+}
+
+export function persistSlideLang(lang: SlideLang): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SLIDE_LANG_STORAGE_KEY, lang);
+    const url = new URL(window.location.href);
+    if (lang === 'en') {
+      url.searchParams.set('lang', 'en');
+    } else {
+      url.searchParams.delete('lang');
+    }
+    window.history.replaceState(null, '', url.toString());
+  } catch {
+    // Ignore storage/history errors
+  }
+}
 
 function distPtToSegSq(
   px: number,
@@ -132,7 +165,7 @@ export interface InAppBrowserInfo {
 }
 
 /** Detect common in-app WebViews (LINE, Facebook, Instagram, TikTok, etc.) where window.print() is often blocked. */
-export function detectInAppBrowser(userAgent?: string): InAppBrowserInfo {
+export function detectInAppBrowser(userAgent?: string, lang: SlideLang = 'th'): InAppBrowserInfo {
   const ua = userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : '');
   if (!ua) return { isInApp: false, appName: null };
   if (/\bLine\//i.test(ua)) return { isInApp: true, appName: 'LINE' };
@@ -143,7 +176,9 @@ export function detectInAppBrowser(userAgent?: string): InAppBrowserInfo {
   if (/BytedanceWebview|musical_ly|TikTok/i.test(ua)) return { isInApp: true, appName: 'TikTok' };
   if (/Discord/i.test(ua)) return { isInApp: true, appName: 'Discord' };
   if (/MicroMessenger/i.test(ua)) return { isInApp: true, appName: 'WeChat' };
-  if (/; wv\)/i.test(ua)) return { isInApp: true, appName: 'เบราว์เซอร์ในแอป' };
+  if (/; wv\)/i.test(ua)) {
+    return { isInApp: true, appName: lang === 'en' ? 'an in-app browser' : 'เบราว์เซอร์ในแอป' };
+  }
   return { isInApp: false, appName: null };
 }
 

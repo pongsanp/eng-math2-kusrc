@@ -1,6 +1,6 @@
 import type { SlideDef, SlideEmbed3DKind, SlideExampleScene3D } from '../../slides/ch1SlidesData';
-import { CH1_VISIBLE_SLIDES } from '../../slides/ch1SlidesData';
-import type { PrintScope } from '../../slides/inkUtils';
+import { CH1_VISIBLE_SLIDES, getLocalizedSlide } from '../../slides/ch1SlidesData';
+import type { PrintScope, SlideLang } from '../../slides/inkUtils';
 import { KaTeX } from '../KaTeX';
 import { RichMathText } from './RichMathText';
 
@@ -8,6 +8,7 @@ interface SlidePrintViewProps {
   includeInk: boolean;
   inkImagesBySlide: Record<number, string>;
   printScope: PrintScope;
+  lang?: SlideLang;
 }
 
 function SvgHaloText({
@@ -130,7 +131,8 @@ function renderSvgArrow(
   );
 }
 
-function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
+function StaticDiagramSVG({ kind, lang = 'th' }: { kind: SlideEmbed3DKind; lang?: SlideLang }) {
+  const isEn = lang === 'en';
   const ox = 100;
   const oy = 115;
   const axBounds = { minX: 14, maxX: 226, minY: 12, maxY: 178 };
@@ -138,7 +140,7 @@ function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
   return (
     <div className="h-full flex flex-col justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-sm font-bold text-slate-600 flex items-center justify-between">
-        <span>แผนภาพประกอบ 3 มิติ (Interactive 3D บนเว็บ)</span>
+        <span>{isEn ? '3D Interactive Diagram (Web)' : 'แผนภาพประกอบ 3 มิติ (Interactive 3D บนเว็บ)'}</span>
         <span className="font-mono text-xs text-sky-700">pongsanp.github.io/eng-math2-kusrc</span>
       </div>
       <svg viewBox="0 0 240 190" className="w-full flex-1 my-2">
@@ -261,13 +263,22 @@ function StaticDiagramSVG({ kind }: { kind: SlideEmbed3DKind }) {
         )}
       </svg>
       <div className="text-xs text-slate-500 text-center">
-        สแกนหรือเปิดเว็บเพื่อหมุนกราฟ 3 มิติแบบ Interactive
+        {isEn
+          ? 'Open the web app to orbit interactively in 3D'
+          : 'สแกนหรือเปิดเว็บเพื่อหมุนกราฟ 3 มิติแบบ Interactive'}
       </div>
     </div>
   );
 }
 
-function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
+function ExampleSceneSVG({
+  scene,
+  lang = 'th',
+}: {
+  scene: SlideExampleScene3D;
+  lang?: SlideLang;
+}) {
+  const isEn = lang === 'en';
   const vecs = scene.vectors ?? [];
   const pts = scene.points ?? [];
   const lines = scene.lines ?? [];
@@ -505,13 +516,14 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
             ny = -ny;
           }
           const [lx, ly] = clampLabel(pb[0] * 0.7 + pm[0] * 0.3 + nx * 10, pb[1] * 0.7 + pm[1] * 0.3 + ny * 10);
+          const lineLabel = isEn ? (l.labelEn ?? l.label) : l.label;
           return (
             <g key={`l-${idx}`}>
               <line x1={pa[0]} y1={pa[1]} x2={pb[0]} y2={pb[1]} stroke={l.color} strokeWidth="2" />
               <circle cx={pm[0]} cy={pm[1]} r="3" fill={l.color} />
-              {l.label && (
+              {lineLabel && (
                 <SvgHaloText x={lx} y={ly} fill={l.color} fontSize={10}>
-                  {l.label}
+                  {lineLabel}
                 </SvgHaloText>
               )}
             </g>
@@ -543,9 +555,9 @@ function ExampleSceneSVG({ scene }: { scene: SlideExampleScene3D }) {
           );
         })}
       </svg>
-      {scene.hintTh && (
+      {((isEn ? scene.hintEn : scene.hintTh) ?? scene.hintTh) && (
         <div className="text-[10px] text-slate-600 leading-tight truncate text-center pt-0.5 border-t border-slate-200/80">
-          {scene.hintTh}
+          {(isEn ? scene.hintEn : scene.hintTh) ?? scene.hintTh}
         </div>
       )}
     </div>
@@ -558,8 +570,11 @@ function renderPrintSlide(
   total: number,
   includeInk: boolean,
   scopeText: string,
+  lang: SlideLang,
   inkDataUrl?: string,
 ) {
+  const isEn = lang === 'en';
+  const loc = getLocalizedSlide(slide, lang);
   return (
     <div key={slide.id} className="print-slide-page bg-white">
       <div className="print-slide-slot">
@@ -571,13 +586,13 @@ function renderPrintSlide(
           <div>
             <div className="flex items-center gap-2 text-sm font-bold text-emerald-700">
               <span className="px-2 py-0.5 rounded bg-emerald-600 text-white">01417168</span>
-              <span>{slide.tagTh}</span>
-              <span className="text-slate-400">• {slide.tagEn}</span>
+              <span>{loc.primaryTag}</span>
+              <span className="text-slate-400">• {loc.secondaryTag}</span>
             </div>
             <h2 className="text-[28px] leading-tight font-extrabold text-slate-900 mt-1">
-              {slide.titleTh}
+              {loc.title}
             </h2>
-            <p className="text-sm text-slate-500">{slide.subtitle ?? slide.titleEn}</p>
+            {loc.subtitle && <p className="text-sm text-slate-500">{loc.subtitle}</p>}
           </div>
           <div className="text-sm font-mono font-bold text-slate-500 shrink-0">
             {index + 1} / {total}
@@ -586,30 +601,31 @@ function renderPrintSlide(
 
         {/* Body */}
         <div className="relative flex-1 min-h-0 py-3">
-          {slide.kind === 'example' && slide.examples ? (
+          {slide.kind === 'example' && loc.examples ? (
             <div className="h-full flex flex-col gap-3">
-              {slide.examples.map((ex, i) => (
+              {loc.examples.map((ex, i) => (
                 <div
                   key={i}
                   className="flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 p-3.5 bg-slate-50/50"
                 >
                   <div className="text-[19px] font-bold text-slate-900 leading-snug">
-                    {ex.label && (
+                    {ex.displayLabel && (
                       <span
                         className={`mr-2 px-2.5 py-0.5 rounded text-sm font-bold ${
-                          ex.label.includes('แนวข้อสอบ')
+                          ex.displayLabel.includes('แนวข้อสอบ') ||
+                          ex.displayLabel.includes('Drill')
                             ? 'bg-rose-100 text-rose-800 border border-rose-200'
                             : 'bg-sky-100 text-sky-800'
                         }`}
                       >
-                        {ex.label}
+                        {ex.displayLabel}
                       </span>
                     )}
-                    <RichMathText text={ex.promptTh} />
+                    <RichMathText text={ex.displayPrompt} />
                   </div>
-                  {ex.promptLatex && (
+                  {ex.displayLatex && (
                     <div className="mt-2 px-3 py-1.5 rounded-xl bg-white border border-slate-200 inline-block text-[20px] text-sky-900">
-                      <KaTeX math={ex.promptLatex} />
+                      <KaTeX math={ex.displayLatex} />
                     </div>
                   )}
 
@@ -623,7 +639,7 @@ function renderPrintSlide(
                         }}
                       />
                       <div className="col-span-4 min-h-0">
-                        <ExampleSceneSVG scene={ex.scene3D} />
+                        <ExampleSceneSVG scene={ex.scene3D} lang={lang} />
                       </div>
                     </div>
                   ) : (
@@ -649,7 +665,7 @@ function renderPrintSlide(
                       : 'flex flex-col justify-center gap-3'
                 }
               >
-                {slide.cards?.map((card, cIdx) => (
+                {loc.cards?.map((card, cIdx) => (
                   <div
                     key={cIdx}
                     className={`rounded-2xl border border-slate-200 bg-slate-50/60 ${
@@ -701,7 +717,7 @@ function renderPrintSlide(
               </div>
               {slide.embed3D && (
                 <div className="col-span-5">
-                  <StaticDiagramSVG kind={slide.embed3D} />
+                  <StaticDiagramSVG kind={slide.embed3D} lang={lang} />
                 </div>
               )}
             </div>
@@ -720,11 +736,21 @@ function renderPrintSlide(
 
       {/* Footer */}
       <div className="shrink-0 flex items-center justify-between text-xs text-slate-500 border-t border-slate-200 pt-2">
-        <span>01417168 คณิตศาสตร์วิศวกรรม II • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์</span>
-          <span>
-            {scopeText} •{' '}
-            {includeInk ? 'ฉบับรวมลายมือประกอบการสอน' : 'ฉบับเว้นที่เขียนประกอบการสอน (GoodNotes)'}
-          </span>
+        <span>
+          {isEn
+            ? '01417168 Engineering Mathematics II • Faculty of Science at Sriracha, Kasetsart University'
+            : '01417168 คณิตศาสตร์วิศวกรรม II • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'}
+        </span>
+        <span>
+          {scopeText} •{' '}
+          {isEn
+            ? includeInk
+              ? 'With Handwritten Annotations'
+              : 'Blank Worksheet Edition (GoodNotes)'
+            : includeInk
+              ? 'ฉบับรวมลายมือประกอบการสอน'
+              : 'ฉบับเว้นที่เขียนประกอบการสอน (GoodNotes)'}
+        </span>
         </div>
         </div>
       </div>
@@ -736,7 +762,9 @@ export function SlidePrintView({
   includeInk,
   inkImagesBySlide,
   printScope,
+  lang = 'th',
 }: SlidePrintViewProps) {
+  const isEn = lang === 'en';
   const slidesToPrint =
     printScope === 'lec1'
       ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 1)
@@ -744,13 +772,30 @@ export function SlidePrintView({
         ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 2)
         : CH1_VISIBLE_SLIDES;
 
-  const scopeText =
-    printScope === 'lec1' ? 'คาบที่ 1' : printScope === 'lec2' ? 'คาบที่ 2' : 'ครบทั้งบท';
+  const scopeText = isEn
+    ? printScope === 'lec1'
+      ? 'Lecture 1'
+      : printScope === 'lec2'
+        ? 'Lecture 2'
+        : 'Full Chapter'
+    : printScope === 'lec1'
+      ? 'คาบที่ 1'
+      : printScope === 'lec2'
+        ? 'คาบที่ 2'
+        : 'ครบทั้งบท';
 
   return (
     <div className="hidden print:block">
       {slidesToPrint.map((s, idx) =>
-        renderPrintSlide(s, idx, slidesToPrint.length, includeInk, scopeText, inkImagesBySlide[s.id]),
+        renderPrintSlide(
+          s,
+          idx,
+          slidesToPrint.length,
+          includeInk,
+          scopeText,
+          lang,
+          inkImagesBySlide[s.id],
+        ),
       )}
     </div>
   );

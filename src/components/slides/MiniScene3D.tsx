@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ArrowLeftRight, RotateCcw } from 'lucide-react';
 import type { SlideEmbed3DKind, SlideExampleScene3D } from '../../slides/ch1SlidesData';
+import type { SlideLang } from '../../slides/inkUtils';
 import type { Vec3Tuple } from '../../types';
 import { mathVecToThree } from '../../math/coords';
 import { fmtNum } from '../../math/latex';
@@ -26,6 +27,7 @@ interface MiniScene3DProps {
   hintTh?: string;
   compact?: boolean;
   aboveInk?: boolean;
+  lang?: SlideLang;
 }
 
 const DEFAULT_ISO: Vec3Tuple = [8.2, 8.2, 6.2];
@@ -37,6 +39,7 @@ export function MiniScene3D({
   hintTh,
   compact = false,
   aboveInk = false,
+  lang = 'th',
 }: MiniScene3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -210,8 +213,9 @@ export function MiniScene3D({
         const b: Vec3Tuple = [p0[0] + span * u[0], p0[1] + span * u[1], p0[2] + span * u[2]];
         addThickCurve(group, [a, b], l.color, 0.032);
         addLabeledSphere(group, p0, l.color, undefined, false, 0.09);
-        if (l.label) {
-          const sp = makeTextSprite(l.label, l.color, 'halo', compact ? 0.48 : 0.42);
+        const lineLabel = lang === 'en' ? (l.labelEn ?? l.label) : l.label;
+        if (lineLabel) {
+          const sp = makeTextSprite(lineLabel, l.color, 'halo', compact ? 0.48 : 0.42);
           const lp = mathVecToThree([p0[0] + 2.2 * u[0], p0[1] + 2.2 * u[1], p0[2] + 2.2 * u[2]]);
           sp.position.copy(lp).add(new THREE.Vector3(0.24, 0.28, 0));
           group.add(sp);
@@ -317,8 +321,9 @@ export function MiniScene3D({
       ch1Tab: tabMap[embed],
       ...baseInputs,
     });
-  }, [embed, customScene, compact, plotStep, plotOctNeg, slideProgress, arithOp, projObtuse, crossFlip, coplanar, lineT]);
+  }, [embed, customScene, compact, lang, plotStep, plotOctNeg, slideProgress, arithOp, projObtuse, crossFlip, coplanar, lineT]);
 
+  const isEn = lang === 'en';
   const resetCam = () => {
     if (!cameraRef.current || !controlsRef.current) return;
     cameraRef.current.position.copy(mathVecToThree(compact ? COMPACT_ISO : DEFAULT_ISO));
@@ -342,12 +347,12 @@ export function MiniScene3D({
         <button
           type="button"
           onClick={resetCam}
-          title="รีเซ็ตมุมกล้อง 3 มิติ"
+          title={isEn ? 'Reset 3D camera view' : 'รีเซ็ตมุมกล้อง 3 มิติ'}
           className={`absolute top-2 right-2 inline-flex items-center gap-1 rounded-lg bg-white/90 border border-slate-200 font-semibold text-slate-700 hover:bg-sky-50 shadow-sm ${
             compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs sm:text-sm'
           }`}
         >
-          <RotateCcw className="w-3 h-3" /> รีเซ็ตมุม
+          <RotateCcw className="w-3 h-3" /> {isEn ? 'Reset' : 'รีเซ็ตมุม'}
         </button>
         <div
           className={`pointer-events-none absolute top-2 left-2 flex items-center gap-2 rounded-lg bg-white/90 border border-slate-200/80 font-bold ${
@@ -361,7 +366,7 @@ export function MiniScene3D({
         {compact && customScene && (
           <div className="pointer-events-none absolute bottom-1.5 left-1.5 right-1.5 flex justify-start">
             <span className="px-2 py-0.5 rounded-md bg-white/85 border border-slate-200/80 text-[10px] text-slate-600 leading-tight truncate max-w-full">
-              {hintTh ?? customScene.hintTh ?? 'ลากหมุนดูรูป 3 มิติ'}
+              {hintTh ?? (isEn ? customScene.hintEn : customScene.hintTh) ?? (isEn ? 'Drag to orbit 3D view' : 'ลากหมุนดูรูป 3 มิติ')}
             </span>
           </div>
         )}
@@ -384,7 +389,7 @@ export function MiniScene3D({
                       : 'bg-slate-50 text-slate-700 border-slate-200'
                   }`}
                 >
-                  ขั้น {s}
+                  {isEn ? `Step ${s}` : `ขั้น ${s}`}
                 </button>
               ))}
             </div>
@@ -393,7 +398,13 @@ export function MiniScene3D({
               onClick={() => setPlotOctNeg((v) => !v)}
               className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700 hover:border-sky-400"
             >
-              {plotOctNeg ? '(-2,3,2) อัฐภาค II' : '(2,3,2) อัฐภาค I'}
+              {isEn
+                ? plotOctNeg
+                  ? '(-2,3,2) Octant II'
+                  : '(2,3,2) Octant I'
+                : plotOctNeg
+                  ? '(-2,3,2) อัฐภาค II'
+                  : '(2,3,2) อัฐภาค I'}
             </button>
           </div>
         )}
@@ -430,14 +441,16 @@ export function MiniScene3D({
               className="flex-1 h-1.5"
             />
             <span className="font-mono text-xs sm:text-sm font-semibold text-slate-600 shrink-0">
-              ต่อหาง {Math.round(slideProgress * 100)}%
+              {isEn ? 'Head-to-Tail' : 'ต่อหาง'} {Math.round(slideProgress * 100)}%
             </span>
           </div>
         )}
 
         {embed === 'projection' && (
           <div className="flex items-center justify-between w-full gap-2">
-            <span className="text-xs sm:text-sm text-slate-500">ทดลองมุมฉาย:</span>
+            <span className="text-xs sm:text-sm text-slate-500">
+              {isEn ? 'Test Angle:' : 'ทดลองมุมฉาย:'}
+            </span>
             <div className="flex gap-1">
               <button
                 type="button"
@@ -446,7 +459,7 @@ export function MiniScene3D({
                   !projObtuse ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 border-slate-200'
                 }`}
               >
-                มุมแหลม (u·v &gt; 0)
+                {isEn ? 'Acute (u·v > 0)' : 'มุมแหลม (u·v > 0)'}
               </button>
               <button
                 type="button"
@@ -455,7 +468,7 @@ export function MiniScene3D({
                   projObtuse ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 border-slate-200'
                 }`}
               >
-                มุมป้าน (u·v &lt; 0)
+                {isEn ? 'Obtuse (u·v < 0)' : 'มุมป้าน (u·v < 0)'}
               </button>
             </div>
           </div>
@@ -464,7 +477,7 @@ export function MiniScene3D({
         {embed === 'cross' && (
           <div className="flex items-center justify-between w-full gap-2">
             <span className="text-xs sm:text-sm font-semibold text-rose-700">
-              แสดง: {crossFlip ? 'v × u' : 'u × v'}
+              {isEn ? 'Showing:' : 'แสดง:'} {crossFlip ? 'v × u' : 'u × v'}
             </span>
             <button
               type="button"
@@ -472,7 +485,7 @@ export function MiniScene3D({
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 text-white font-semibold"
             >
               <ArrowLeftRight className="w-3.5 h-3.5" />
-              สลับ {crossFlip ? 'v × u → u × v' : 'u × v → v × u'}
+              {isEn ? 'Swap' : 'สลับ'} {crossFlip ? 'v × u → u × v' : 'u × v → v × u'}
             </button>
           </div>
         )}
@@ -480,14 +493,26 @@ export function MiniScene3D({
         {embed === 'triple' && (
           <div className="flex items-center justify-between w-full gap-2">
             <span className="text-xs sm:text-sm text-slate-600 font-semibold">
-              {coplanar ? 'ระนาบเดียวกัน (V = 0)' : 'กล่อง 3 มิติ (V = 10)'}
+              {isEn
+                ? coplanar
+                  ? 'Coplanar (V = 0)'
+                  : 'Parallelepiped (V = 10)'
+                : coplanar
+                  ? 'ระนาบเดียวกัน (V = 0)'
+                  : 'กล่อง 3 มิติ (V = 10)'}
             </span>
             <button
               type="button"
               onClick={() => setCoplanar((c) => !c)}
               className="px-2.5 py-1 rounded-lg border border-violet-300 bg-violet-50 text-violet-800 font-semibold hover:bg-violet-100"
             >
-              {coplanar ? 'กลับเป็นกล่อง V ≠ 0' : 'ทดสอบ V = 0 (Coplanar)'}
+              {isEn
+                ? coplanar
+                  ? 'Restore Box V ≠ 0'
+                  : 'Test V = 0 (Coplanar)'
+                : coplanar
+                  ? 'กลับเป็นกล่อง V ≠ 0'
+                  : 'ทดสอบ V = 0 (Coplanar)'}
             </button>
           </div>
         )}

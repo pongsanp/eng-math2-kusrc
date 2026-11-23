@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import {
   CH1_VISIBLE_SLIDES,
+  getLocalizedSlide,
   type SlideDef,
   type SlideFormulaBlock,
 } from '../../slides/ch1SlidesData';
@@ -48,6 +49,7 @@ import {
   type LaserStyle,
   type NavDirection,
   type PrintScope,
+  type SlideLang,
   type ToolbarDock,
 } from '../../slides/inkUtils';
 import { MiniScene3D } from './MiniScene3D';
@@ -56,6 +58,8 @@ import { SlidePrintView } from './SlidePrintView';
 
 interface SlidesDeckProps {
   onBackToDashboard: () => void;
+  lang: SlideLang;
+  onChangeLang: (lang: SlideLang) => void;
 }
 
 type TextScale = 'normal' | 'large' | 'xlarge';
@@ -64,37 +68,38 @@ const DECK_ID = 'ch1';
 const LEGACY_INK_STORAGE_KEY = 'eng_math_2_ch1_ink_v1';
 
 const PEN_COLORS = [
-  { color: '#0f172a', label: 'ดำ' },
-  { color: '#dc2626', label: 'แดง' },
-  { color: '#2563eb', label: 'น้ำเงิน' },
-  { color: '#059669', label: 'เขียว' },
+  { color: '#0f172a', label: 'ดำ', labelEn: 'Black' },
+  { color: '#dc2626', label: 'แดง', labelEn: 'Red' },
+  { color: '#2563eb', label: 'น้ำเงิน', labelEn: 'Blue' },
+  { color: '#059669', label: 'เขียว', labelEn: 'Green' },
 ];
 
 const EXTENDED_PEN_COLORS = [
-  { color: '#0f172a', label: 'ดำ' },
-  { color: '#475569', label: 'เทาเข้ม' },
-  { color: '#92400e', label: 'น้ำตาล' },
-  { color: '#dc2626', label: 'แดงสด' },
-  { color: '#9f1239', label: 'แดงเลือดหมู' },
-  { color: '#db2777', label: 'ชมพูบานเย็น' },
-  { color: '#c026d3', label: 'ม่วงแดง' },
-  { color: '#7c3aed', label: 'ม่วง' },
-  { color: '#4f46e5', label: 'คราม' },
-  { color: '#2563eb', label: 'น้ำเงิน' },
-  { color: '#0284c7', label: 'ฟ้าสด' },
-  { color: '#0891b2', label: 'ฟ้าน้ำทะเล' },
-  { color: '#0d9488', label: 'เขียวอมฟ้า' },
-  { color: '#059669', label: 'เขียวมรกต' },
-  { color: '#15803d', label: 'เขียวเข้ม' },
-  { color: '#65a30d', label: 'เขียวมะกอก' },
-  { color: '#d97706', label: 'ส้มอำพัน' },
-  { color: '#ea580c', label: 'ส้มสด' },
+  { color: '#0f172a', label: 'ดำ', labelEn: 'Black' },
+  { color: '#475569', label: 'เทาเข้ม', labelEn: 'Slate' },
+  { color: '#92400e', label: 'น้ำตาล', labelEn: 'Brown' },
+  { color: '#dc2626', label: 'แดงสด', labelEn: 'Red' },
+  { color: '#9f1239', label: 'แดงเลือดหมู', labelEn: 'Crimson' },
+  { color: '#db2777', label: 'ชมพูบานเย็น', labelEn: 'Pink' },
+  { color: '#c026d3', label: 'ม่วงแดง', labelEn: 'Magenta' },
+  { color: '#7c3aed', label: 'ม่วง', labelEn: 'Violet' },
+  { color: '#4f46e5', label: 'คราม', labelEn: 'Indigo' },
+  { color: '#2563eb', label: 'น้ำเงิน', labelEn: 'Blue' },
+  { color: '#0284c7', label: 'ฟ้าสด', labelEn: 'Sky' },
+  { color: '#0891b2', label: 'ฟ้าน้ำทะเล', labelEn: 'Cyan' },
+  { color: '#0d9488', label: 'เขียวอมฟ้า', labelEn: 'Teal' },
+  { color: '#059669', label: 'เขียวมรกต', labelEn: 'Emerald' },
+  { color: '#15803d', label: 'เขียวเข้ม', labelEn: 'Forest' },
+  { color: '#65a30d', label: 'เขียวมะกอก', labelEn: 'Olive' },
+  { color: '#d97706', label: 'ส้มอำพัน', labelEn: 'Amber' },
+  { color: '#ea580c', label: 'ส้มสด', labelEn: 'Orange' },
 ];
 
 const FONT_SCALE_MAP: Record<
   TextScale,
   {
     labelTh: string;
+    labelEn: string;
     title: string;
     subtitle: string;
     cardHeading: string;
@@ -108,6 +113,7 @@ const FONT_SCALE_MAP: Record<
 > = {
   normal: {
     labelTh: 'ปกติ',
+    labelEn: 'Normal',
     title: 'text-[32px] leading-tight',
     subtitle: 'text-[18px]',
     cardHeading: 'text-[23px] leading-snug',
@@ -120,6 +126,7 @@ const FONT_SCALE_MAP: Record<
   },
   large: {
     labelTh: 'ใหญ่ (ฉายจอ)',
+    labelEn: 'Large',
     title: 'text-[36px] leading-tight',
     subtitle: 'text-[20px]',
     cardHeading: 'text-[26px] leading-snug',
@@ -132,6 +139,7 @@ const FONT_SCALE_MAP: Record<
   },
   xlarge: {
     labelTh: 'ใหญ่มาก',
+    labelEn: 'X-Large',
     title: 'text-[42px] leading-tight',
     subtitle: 'text-[22px]',
     cardHeading: 'text-[29px] leading-snug',
@@ -164,7 +172,8 @@ const STAGE_HEIGHT = 720;
 const NAV_DIR_STORAGE_KEY = 'eng_math_2_nav_dir';
 const TOOLBAR_POS_STORAGE_KEY = 'eng_math_2_toolbar_pos';
 
-export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
+export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
+  const isEn = lang === 'en';
   const [slideIdx, setSlideIdx] = useState(0);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [textScale, setTextScale] = useState<TextScale>('large');
@@ -243,7 +252,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   const [exportBlockedMessage, setExportBlockedMessage] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const printFallbackTimerRef = useRef<number | null>(null);
-  const inAppBrowser = detectInAppBrowser();
+  const inAppBrowser = detectInAppBrowser(undefined, lang);
 
   useEffect(() => {
     return () => {
@@ -277,6 +286,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   const totalSlides = CH1_VISIBLE_SLIDES.length;
   const safeSlideIdx = Math.min(slideIdx, Math.max(0, totalSlides - 1));
   const slide: SlideDef = CH1_VISIBLE_SLIDES[safeSlideIdx];
+  const loc = getLocalizedSlide(slide, lang);
   const lecture2StartIdx = CH1_VISIBLE_SLIDES.findIndex((s) => s.lecture === 2);
   const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalSlides;
   const fs = FONT_SCALE_MAP[textScale];
@@ -483,7 +493,10 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
   };
 
   const handleClearAllInk = () => {
-    if (window.confirm('ต้องการล้างลายมือที่เขียนไว้ทั้งหมดทุกหน้าหรือไม่?')) {
+    const confirmMsg = isEn
+      ? 'Clear all handwritten annotations across every slide?'
+      : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดทุกหน้าหรือไม่?';
+    if (window.confirm(confirmMsg)) {
       undoHistoryRef.current = {};
       setUndoCountBySlide({});
       strokesRef.current = {};
@@ -632,9 +645,14 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
       setLinkCopied(true);
       window.setTimeout(() => setLinkCopied(false), 2500);
     } catch {
-      window.prompt('คัดลอกลิงก์ด้านล่างไปเปิดใน Safari หรือ Chrome:', window.location.href);
+      window.prompt(
+        isEn
+          ? 'Copy the link below and open it in Safari or Chrome:'
+          : 'คัดลอกลิงก์ด้านล่างไปเปิดใน Safari หรือ Chrome:',
+        window.location.href,
+      );
     }
-  }, []);
+  }, [isEn]);
 
   const invokePrintWithFallbackCheck = useCallback(() => {
     if (printFallbackTimerRef.current !== null) {
@@ -660,14 +678,22 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
       window.removeEventListener('beforeprint', onBeforePrint);
       printFallbackTimerRef.current = null;
       if (!beforePrintFired && elapsed < 400 && document.visibilityState === 'visible') {
-        setExportBlockedMessage(
-          inAppBrowser.isInApp
-            ? `ตรวจพบการเปิดผ่านเบราว์เซอร์ของ ${inAppBrowser.appName ?? 'แอปภายนอก'} ซึ่งมักปิดคำสั่ง Export PDF — กรุณากดเมนู (⋮ หรือ แชร์) แล้วเลือก "เปิดใน Safari" หรือ "เปิดใน Chrome" หรือคัดลอกลิงก์ไปเปิดในเบราว์เซอร์โดยตรง`
-            : 'เบราว์เซอร์นี้ไม่อนุญาตหรือบล็อกหน้าต่าง Export PDF — แนะนำให้คัดลอกลิงก์ไปเปิดใน Safari หรือ Chrome โดยตรง หรือลองกดเมนูแชร์ของเบราว์เซอร์ → พิมพ์/บันทึกเป็น PDF',
-        );
+        if (isEn) {
+          setExportBlockedMessage(
+            inAppBrowser.isInApp
+              ? `Opened inside ${inAppBrowser.appName ?? 'an in-app browser'}, which often blocks PDF export — tap the menu (⋮ or Share) and choose "Open in Safari" / "Open in Chrome", or copy the link below.`
+              : 'This browser blocked or ignored the Print/PDF dialog — copy the link to open directly in Safari or Chrome, or use your browser Share menu → Print / Save as PDF.',
+          );
+        } else {
+          setExportBlockedMessage(
+            inAppBrowser.isInApp
+              ? `ตรวจพบการเปิดผ่านเบราว์เซอร์ของ ${inAppBrowser.appName ?? 'แอปภายนอก'} ซึ่งมักปิดคำสั่ง Export PDF — กรุณากดเมนู (⋮ หรือ แชร์) แล้วเลือก "เปิดใน Safari" หรือ "เปิดใน Chrome" หรือคัดลอกลิงก์ไปเปิดในเบราว์เซอร์โดยตรง`
+              : 'เบราว์เซอร์นี้ไม่อนุญาตหรือบล็อกหน้าต่าง Export PDF — แนะนำให้คัดลอกลิงก์ไปเปิดใน Safari หรือ Chrome โดยตรง หรือลองกดเมนูแชร์ของเบราว์เซอร์ → พิมพ์/บันทึกเป็น PDF',
+          );
+        }
       }
     }, 1100);
-  }, [inAppBrowser.appName, inAppBrowser.isInApp]);
+  }, [inAppBrowser.appName, inAppBrowser.isInApp, isEn]);
 
   const triggerExportPdf = async (withInk: boolean) => {
     const generated: Record<number, string> = {};
@@ -733,7 +759,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   slide.lecture === 1 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
                 }`}
               >
-                คาบ 1 (1–{lecture1EndPage})
+                {isEn ? `Lec 1 (1–${lecture1EndPage})` : `คาบ 1 (1–${lecture1EndPage})`}
               </button>
               <button
                 type="button"
@@ -742,7 +768,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   slide.lecture === 2 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
                 }`}
               >
-                คาบ 2 ({lecture1EndPage + 1}–{totalSlides})
+                {isEn
+                  ? `Lec 2 (${lecture1EndPage + 1}–${totalSlides})`
+                  : `คาบ 2 (${lecture1EndPage + 1}–${totalSlides})`}
               </button>
             </div>
           </div>
@@ -753,53 +781,88 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               type="button"
               onClick={goPrev}
               disabled={safeSlideIdx === 0}
-              aria-label="หน้าก่อนหน้า"
+              aria-label={isEn ? 'Previous slide' : 'หน้าก่อนหน้า'}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-[15px] font-bold text-slate-700 disabled:opacity-40 shadow-xs transition"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">ก่อนหน้า</span>
+              <span className="hidden sm:inline">{isEn ? 'Prev' : 'ก่อนหน้า'}</span>
             </button>
             <div className="px-2 text-[15px] font-mono font-bold text-slate-700">
-              หน้า {safeSlideIdx + 1} / {totalSlides}
+              {isEn ? `${safeSlideIdx + 1} / ${totalSlides}` : `หน้า ${safeSlideIdx + 1} / ${totalSlides}`}
             </div>
             <button
               type="button"
               onClick={goNext}
               disabled={safeSlideIdx === totalSlides - 1}
-              aria-label="หน้าถัดไป"
+              aria-label={isEn ? 'Next slide' : 'หน้าถัดไป'}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[15px] font-bold disabled:opacity-40 shadow-sm transition"
             >
-              <span>ถัดไป</span>
+              <span>{isEn ? 'Next' : 'ถัดไป'}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-1">
+            {/* Language Switcher (TH / EN) */}
+            <div
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[13px] font-bold"
+              title={
+                isEn
+                  ? 'Switch slide language (Thai / English)'
+                  : 'สลับภาษาสไลด์ (ไทย / English สำหรับ EP/Inter)'
+              }
+            >
+              <button
+                type="button"
+                onClick={() => onChangeLang('th')}
+                aria-label="ภาษาไทย"
+                className={`px-2 py-0.5 rounded-lg transition ${
+                  lang === 'th'
+                    ? 'bg-white text-sky-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                TH
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeLang('en')}
+                aria-label="English"
+                className={`px-2 py-0.5 rounded-lg transition ${
+                  lang === 'en'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                EN
+              </button>
+            </div>
+
             {/* Projector Text Size Control */}
             <div
               className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-[14px] font-bold"
-              title="ปรับขนาดตัวอักษรสำหรับฉายขึ้นจอ"
+              title={isEn ? 'Adjust slide text size for projection' : 'ปรับขนาดตัวอักษรสำหรับฉายขึ้นจอ'}
             >
               <button
                 type="button"
                 onClick={stepTextScaleDown}
                 disabled={textScale === 'normal'}
-                aria-label="ลดขนาดตัวอักษร"
+                aria-label={isEn ? 'Decrease text size' : 'ลดขนาดตัวอักษร'}
                 className="px-2 py-0.5 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
               >
-                ก-
+                {isEn ? 'A-' : 'ก-'}
               </button>
               <span className="hidden 2xl:inline px-1.5 text-[13px] font-semibold text-slate-500">
-                {fs.labelTh}
+                {isEn ? fs.labelEn : fs.labelTh}
               </span>
               <button
                 type="button"
                 onClick={stepTextScaleUp}
                 disabled={textScale === 'xlarge'}
-                aria-label="เพิ่มขนาดตัวอักษร"
+                aria-label={isEn ? 'Increase text size' : 'เพิ่มขนาดตัวอักษร'}
                 className="px-2 py-0.5 rounded-lg hover:bg-white text-slate-700 disabled:opacity-40 transition"
               >
-                ก+
+                {isEn ? 'A+' : 'ก+'}
               </button>
             </div>
 
@@ -810,9 +873,13 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 setNavDirection((d) => (d === 'horizontal' ? 'vertical' : 'horizontal'))
               }
               title={
-                navDirection === 'horizontal'
-                  ? 'โหมดปัด/เลื่อนแนวนอน (ปัดซ้าย = ถัดไป, ปัดขวา = ก่อนหน้า) — กดเพื่อสลับเป็นแนวตั้ง'
-                  : 'โหมดปัด/เลื่อนแนวตั้ง (ปัดขึ้น/หมุนลง = ถัดไป) — กดเพื่อสลับเป็นแนวนอน'
+                isEn
+                  ? navDirection === 'horizontal'
+                    ? 'Horizontal swipe mode (Swipe Left = Next, Swipe Right = Prev) — click to switch to vertical'
+                    : 'Vertical swipe/scroll mode (Swipe Up / Scroll Down = Next) — click to switch to horizontal'
+                  : navDirection === 'horizontal'
+                    ? 'โหมดปัด/เลื่อนแนวนอน (ปัดซ้าย = ถัดไป, ปัดขวา = ก่อนหน้า) — กดเพื่อสลับเป็นแนวตั้ง'
+                    : 'โหมดปัด/เลื่อนแนวตั้ง (ปัดขึ้น/หมุนลง = ถัดไป) — กดเพื่อสลับเป็นแนวนอน'
               }
               className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[14px] font-bold transition ${
                 navDirection === 'vertical'
@@ -823,12 +890,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               {navDirection === 'horizontal' ? (
                 <>
                   <ArrowLeftRight className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">แนวนอน</span>
+                  <span className="hidden sm:inline">{isEn ? 'Horiz' : 'แนวนอน'}</span>
                 </>
               ) : (
                 <>
                   <ArrowUpDown className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">แนวตั้ง</span>
+                  <span className="hidden sm:inline">{isEn ? 'Vert' : 'แนวตั้ง'}</span>
                 </>
               )}
             </button>
@@ -844,7 +911,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   setToolMode('laser');
                 }
               }}
-              title="ชี้จุดสนใจด้วยเลเซอร์สีแดง (คีย์ลัด L)"
+              title={isEn ? 'Red laser pointer (Shortcut: L)' : 'ชี้จุดสนใจด้วยเลเซอร์สีแดง (คีย์ลัด L)'}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[15px] font-bold transition ${
                 drawEnabled && toolMode === 'laser'
                   ? 'border-red-600 bg-red-600 text-white shadow-sm'
@@ -858,7 +925,15 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.85)]'
                 }`}
               />
-              <span>{drawEnabled && toolMode === 'laser' ? 'ปิดเลเซอร์' : 'เลเซอร์'}</span>
+              <span>
+                {isEn
+                  ? drawEnabled && toolMode === 'laser'
+                    ? 'Stop Laser'
+                    : 'Laser'
+                  : drawEnabled && toolMode === 'laser'
+                    ? 'ปิดเลเซอร์'
+                    : 'เลเซอร์'}
+              </span>
             </button>
 
             {/* Apple Pencil / Draw Overlay Toggle */}
@@ -883,7 +958,17 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             >
               <PenTool className="w-4 h-4" />
               <span>
-                {!drawEnabled ? 'เขียน' : toolMode === 'laser' ? 'ปากกา' : 'ปิดปากกา'}
+                {isEn
+                  ? !drawEnabled
+                    ? 'Write'
+                    : toolMode === 'laser'
+                      ? 'Pen'
+                      : 'Done'
+                  : !drawEnabled
+                    ? 'เขียน'
+                    : toolMode === 'laser'
+                      ? 'ปากกา'
+                      : 'ปิดปากกา'}
               </span>
             </button>
 
@@ -898,7 +983,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               }`}
             >
               <LayoutGrid className="w-4 h-4" />
-              <span className="hidden md:inline">สารบัญ</span>
+              <span className="hidden md:inline">{isEn ? 'Outline' : 'สารบัญ'}</span>
             </button>
 
             {/* Export PDF Menu */}
@@ -922,11 +1007,21 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       <div className="flex items-start gap-1.5 font-bold">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
                         <span>
-                          เปิดผ่านแอป {inAppBrowser.appName ?? 'ภายนอก'} อาจกด Export PDF ไม่ขึ้น
+                          {isEn
+                            ? `Opened in ${inAppBrowser.appName ?? 'an in-app browser'} — PDF export may be blocked`
+                            : `เปิดผ่านแอป ${inAppBrowser.appName ?? 'ภายนอก'} อาจกด Export PDF ไม่ขึ้น`}
                         </span>
                       </div>
                       <div className="text-rose-800">
-                        กรุณากดเมนู (⋮ / แชร์) แล้วเลือก <b>เปิดใน Safari / Chrome</b>
+                        {isEn ? (
+                          <>
+                            Tap the menu (⋮ / Share) and choose <b>Open in Safari / Chrome</b>
+                          </>
+                        ) : (
+                          <>
+                            กรุณากดเมนู (⋮ / แชร์) แล้วเลือก <b>เปิดใน Safari / Chrome</b>
+                          </>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -934,14 +1029,22 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                         className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold hover:bg-rose-100 transition"
                       >
                         <Copy className="w-3 h-3" />
-                        <span>{linkCopied ? 'คัดลอกลิงก์แล้ว ✓' : 'คัดลอกลิงก์เว็บ'}</span>
+                        <span>
+                          {isEn
+                            ? linkCopied
+                              ? 'Link Copied ✓'
+                              : 'Copy Page Link'
+                            : linkCopied
+                              ? 'คัดลอกลิงก์แล้ว ✓'
+                              : 'คัดลอกลิงก์เว็บ'}
+                        </span>
                       </button>
                     </div>
                   )}
 
                   <div>
                     <div className="text-[11px] font-bold text-slate-500 px-1 mb-1">
-                      เลือกช่วงสไลด์ที่จะส่งออก:
+                      {isEn ? 'Select slide range to export:' : 'เลือกช่วงสไลด์ที่จะส่งออก:'}
                     </div>
                     <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-bold">
                       <button
@@ -953,7 +1056,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        ทั้งหมด (1–{totalSlides})
+                        {isEn ? `All (1–${totalSlides})` : `ทั้งหมด (1–${totalSlides})`}
                       </button>
                       <button
                         type="button"
@@ -964,7 +1067,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        คาบ 1 (1–{lecture1EndPage})
+                        {isEn ? `Lec 1 (1–${lecture1EndPage})` : `คาบ 1 (1–${lecture1EndPage})`}
                       </button>
                       <button
                         type="button"
@@ -975,7 +1078,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        คาบ 2 ({lecture1EndPage + 1}–{totalSlides})
+                        {isEn
+                          ? `Lec 2 (${lecture1EndPage + 1}–${totalSlides})`
+                          : `คาบ 2 (${lecture1EndPage + 1}–${totalSlides})`}
                       </button>
                     </div>
                   </div>
@@ -986,15 +1091,19 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     className="w-full text-left px-3 py-2.5 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/80 border border-emerald-200 text-slate-800 transition"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-emerald-900">PDF รวมลายมือที่เขียน</span>
+                      <span className="font-bold text-emerald-900">
+                        {isEn ? 'PDF with Annotations' : 'PDF รวมลายมือที่เขียน'}
+                      </span>
                       {scopedAnnotatedCount > 0 && (
                         <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-bold">
-                          มีลายมือ {scopedAnnotatedCount} หน้า
+                          {isEn ? `${scopedAnnotatedCount} annotated` : `มีลายมือ ${scopedAnnotatedCount} หน้า`}
                         </span>
                       )}
                     </div>
                     <div className="text-xs text-slate-600 mt-0.5">
-                      ส่งออก {scopedSlides.length} หน้าพร้อมสิ่งที่เขียนบนหน้าจอ
+                      {isEn
+                        ? `Export ${scopedSlides.length} slides with your on-screen ink`
+                        : `ส่งออก ${scopedSlides.length} หน้าพร้อมสิ่งที่เขียนบนหน้าจอ`}
                     </div>
                   </button>
 
@@ -1003,16 +1112,20 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     onClick={() => void triggerExportPdf(false)}
                     className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-slate-50 border border-slate-200 text-slate-800 transition"
                   >
-                    <div className="font-bold text-slate-800">PDF สไลด์เปล่า (GoodNotes)</div>
+                    <div className="font-bold text-slate-800">
+                      {isEn ? 'Blank PDF Worksheet (GoodNotes)' : 'PDF สไลด์เปล่า (GoodNotes)'}
+                    </div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      ส่งออก {scopedSlides.length} หน้าเป็นช่องตารางจุด 16:9 ยังไม่มีลายมือ
+                      {isEn
+                        ? `Export ${scopedSlides.length} clean 16:9 dot-grid slides (no ink)`
+                        : `ส่งออก ${scopedSlides.length} หน้าเป็นช่องตารางจุด 16:9 ยังไม่มีลายมือ`}
                     </div>
                   </button>
 
                   <div className="px-2.5 py-2 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] leading-snug text-amber-900">
-                    ตั้งค่าเริ่มต้นเป็นแนวนอน (A4 Landscape) แล้ว — บน iPad/Safari
-                    หากหน้าตัวอย่างขึ้นแนวตั้งสามารถกดสลับเป็นแนวนอนได้
-                    (และแม้ไม่สลับ สไลด์จะย่อพอดีกรอบไม่ตกขอบ)
+                    {isEn
+                      ? 'Default layout is A4 Landscape — on iPad/Safari, if the preview opens in Portrait you can switch Orientation to Landscape (slides still fit cleanly without clipping either way).'
+                      : 'ตั้งค่าเริ่มต้นเป็นแนวนอน (A4 Landscape) แล้ว — บน iPad/Safari หากหน้าตัวอย่างขึ้นแนวตั้งสามารถกดสลับเป็นแนวนอนได้ (และแม้ไม่สลับ สไลด์จะย่อพอดีกรอบไม่ตกขอบ)'}
                   </div>
                 </div>
               )}
@@ -1022,8 +1135,24 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              aria-label={isFullscreen ? 'ออกจากเต็มจอ' : 'เต็มจอ'}
-              title={isFullscreen ? 'ออกจากเต็มจอ (F)' : 'ขยายเต็มจอ (F)'}
+              aria-label={
+                isEn
+                  ? isFullscreen
+                    ? 'Exit fullscreen'
+                    : 'Fullscreen'
+                  : isFullscreen
+                    ? 'ออกจากเต็มจอ'
+                    : 'เต็มจอ'
+              }
+              title={
+                isEn
+                  ? isFullscreen
+                    ? 'Exit fullscreen (F)'
+                    : 'Enter fullscreen (F)'
+                  : isFullscreen
+                    ? 'ออกจากเต็มจอ (F)'
+                    : 'ขยายเต็มจอ (F)'
+              }
               className={`inline-flex items-center justify-center p-1.5 rounded-xl border transition ${
                 isFullscreen
                   ? 'border-sky-500 bg-sky-50 text-sky-700'
@@ -1055,12 +1184,20 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-800 font-bold hover:bg-rose-100 transition"
               >
                 <Copy className="w-3.5 h-3.5" />
-                <span>{linkCopied ? 'คัดลอกลิงก์แล้ว ✓' : 'คัดลอกลิงก์ไปเปิดใน Safari/Chrome'}</span>
+                <span>
+                  {isEn
+                    ? linkCopied
+                      ? 'Link Copied ✓'
+                      : 'Copy Link for Safari/Chrome'
+                    : linkCopied
+                      ? 'คัดลอกลิงก์แล้ว ✓'
+                      : 'คัดลอกลิงก์ไปเปิดใน Safari/Chrome'}
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => setExportBlockedMessage(null)}
-                aria-label="ปิดคำแนะนำ Export PDF"
+                aria-label={isEn ? 'Dismiss Export PDF notice' : 'ปิดคำแนะนำ Export PDF'}
                 className="p-1 rounded-lg text-rose-700 hover:bg-rose-100 transition"
               >
                 <X className="w-4 h-4" />
@@ -1075,7 +1212,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
           {overviewOpen && (
             <aside className="w-76 shrink-0 border-r border-slate-200 bg-white overflow-y-auto custom-scrollbar p-3 space-y-1.5 z-30">
               <div className="text-xs sm:text-sm font-bold text-slate-600 px-1 pb-1">
-                สารบัญสไลด์บทที่ 1 ({totalSlides} หน้า)
+                {isEn
+                  ? `Chapter 1 Slides (${totalSlides} pages)`
+                  : `สารบัญสไลด์บทที่ 1 (${totalSlides} หน้า)`}
               </div>
               {CH1_VISIBLE_SLIDES.map((s, idx) => {
                 const hasInk = (strokesBySlide[s.id]?.length ?? 0) > 0;
@@ -1095,25 +1234,31 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   >
                     <div className="flex items-center justify-between text-[11px] opacity-75">
                       <span>
-                        หน้า {idx + 1} • คาบ {s.lecture}
+                        {isEn
+                          ? `Slide ${idx + 1} • Lec ${s.lecture}`
+                          : `หน้า ${idx + 1} • คาบ ${s.lecture}`}
                       </span>
                       <span className="flex items-center gap-1">
                         {hasInk && (
                           <span
-                            title="มีลายมือที่เขียนไว้"
+                            title={isEn ? 'Has handwritten annotations' : 'มีลายมือที่เขียนไว้'}
                             className="inline-block w-2 h-2 rounded-full bg-amber-500"
                           />
                         )}
                         <span>
                           {s.kind === 'example'
-                            ? 'โจทย์'
+                            ? isEn
+                              ? 'Example'
+                              : 'โจทย์'
                             : s.embed3D
                               ? '3D'
-                              : 'เนื้อหา'}
+                              : isEn
+                                ? 'Concept'
+                                : 'เนื้อหา'}
                         </span>
                       </span>
                     </div>
-                    <div className="truncate mt-0.5">{s.titleTh}</div>
+                    <div className="truncate mt-0.5">{isEn ? s.titleEn : s.titleTh}</div>
                   </button>
                 );
               })}
@@ -1141,11 +1286,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     setDrawEnabled(true);
                     setToolMode('pen');
                   }}
-                  title="เข้าสู่โหมดเขียน (คีย์ลัด W)"
+                  title={isEn ? 'Enter Write mode (Shortcut: W)' : 'เข้าสู่โหมดเขียน (คีย์ลัด W)'}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold shadow-sm transition active:scale-95"
                 >
                   <PenTool className="w-4 h-4" />
-                  <span>เขียน</span>
+                  <span>{isEn ? 'Write' : 'เขียน'}</span>
                 </button>
                 <button
                   type="button"
@@ -1153,11 +1298,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     setDrawEnabled(true);
                     setToolMode('laser');
                   }}
-                  title="เปิดเลเซอร์ชี้จุด (คีย์ลัด L)"
+                  title={isEn ? 'Turn on laser pointer (Shortcut: L)' : 'เปิดเลเซอร์ชี้จุด (คีย์ลัด L)'}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-bold transition active:scale-95"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.85)]" />
-                  <span>เลเซอร์</span>
+                  <span>{isEn ? 'Laser' : 'เลเซอร์'}</span>
                 </button>
               </div>
             )}
@@ -1265,7 +1410,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   {/* Drag Handle (Finger / Apple Pencil / Mouse) */}
                   <div
                     data-toolbar-drag="true"
-                    title="ลากด้วยนิ้ว ปากกา หรือเมาส์ เพื่อย้ายตำแหน่งแถบเครื่องมือ"
+                    title={
+                      isEn
+                        ? 'Drag with finger, stylus, or mouse to move toolbar'
+                        : 'ลากด้วยนิ้ว ปากกา หรือเมาส์ เพื่อย้ายตำแหน่งแถบเครื่องมือ'
+                    }
                     className={`inline-flex items-center justify-center rounded-[8px] text-amber-700 hover:bg-amber-100 cursor-grab active:cursor-grabbing touch-none ${
                       isVertBar ? 'py-[3px] border-b border-amber-200/80' : 'px-[3px]'
                     }`}
@@ -1279,11 +1428,15 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       setDrawEnabled(false);
                       setColorPickerOpen(false);
                     }}
-                    title="สลับกลับไปโหมดดูอย่างเดียว (คีย์ลัด W)"
+                    title={
+                      isEn
+                        ? 'Switch back to view-only mode (Shortcut: W)'
+                        : 'สลับกลับไปโหมดดูอย่างเดียว (คีย์ลัด W)'
+                    }
                     className="inline-flex items-center justify-center gap-1 px-[8px] py-[3px] rounded-[8px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs transition active:scale-95"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>เสร็จ</span>
+                    <span>{isEn ? 'Done' : 'เสร็จ'}</span>
                   </button>
 
                   {/* Color Swatches + Palette */}
@@ -1303,7 +1456,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           setPenColor(c.color);
                           setColorPickerOpen(false);
                         }}
-                        title={c.label}
+                        title={isEn ? c.labelEn : c.label}
                         className={`w-[22px] h-[22px] rounded-full border-2 transition ${
                           toolMode === 'pen' && penColor === c.color
                             ? 'border-amber-600 scale-110 shadow'
@@ -1320,7 +1473,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           setExportMenuOpen(false);
                           setColorPickerOpen((o) => !o);
                         }}
-                        title="เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง"
+                        title={isEn ? 'More pen colors or custom color' : 'เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง'}
                         className={`inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[8px] font-semibold border transition ${
                           isVertBar ? 'w-full' : ''
                         } ${
@@ -1335,7 +1488,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           className="w-[10px] h-[10px] rounded-full border border-slate-300 shrink-0"
                           style={{ backgroundColor: penColor }}
                         />
-                        <span>สีเพิ่ม</span>
+                        <span>{isEn ? 'Colors' : 'สีเพิ่ม'}</span>
                       </button>
 
                       {colorPickerOpen && (
@@ -1343,7 +1496,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           className={`absolute ${palettePopoverPosClass} w-64 rounded-2xl border border-slate-200 bg-white shadow-xl p-3 z-50 space-y-2.5`}
                         >
                           <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                            <span>เลือกสีปากกา</span>
+                            <span>{isEn ? 'Choose Pen Color' : 'เลือกสีปากกา'}</span>
                             <span className="font-mono text-[11px] uppercase text-slate-500">
                               {penColor}
                             </span>
@@ -1359,8 +1512,8 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                                   setPenColor(c.color);
                                   setColorPickerOpen(false);
                                 }}
-                                title={c.label}
-                                aria-label={`เลือกสี${c.label}`}
+                                title={isEn ? c.labelEn : c.label}
+                                aria-label={isEn ? `Select ${c.labelEn}` : `เลือกสี${c.label}`}
                                 className={`w-7 h-7 rounded-full border-2 transition ${
                                   toolMode === 'pen' && penColor === c.color
                                     ? 'border-slate-900 scale-110 shadow'
@@ -1376,7 +1529,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                               htmlFor="custom-pen-color"
                               className="text-xs font-semibold text-slate-700 cursor-pointer"
                             >
-                              เลือกสีอิสระ:
+                              {isEn ? 'Custom Color:' : 'เลือกสีอิสระ:'}
                             </label>
                             <input
                               id="custom-pen-color"
@@ -1399,11 +1552,30 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     className={`flex items-center gap-[3px] ${
                       isVertBar ? 'justify-center' : 'pl-[5px] border-l border-amber-200'
                     }`}
-                    title={toolMode === 'eraser' ? 'ปรับขนาดยางลบ' : 'ปรับขนาดหัวปากกา'}
+                    title={
+                      isEn
+                        ? toolMode === 'eraser'
+                          ? 'Eraser size'
+                          : 'Pen tip width'
+                        : toolMode === 'eraser'
+                          ? 'ปรับขนาดยางลบ'
+                          : 'ปรับขนาดหัวปากกา'
+                    }
                   >
                     {(toolMode === 'eraser' ? [3, 6, 11] : [2, 4, 7]).map((w, idx) => {
-                      const label =
-                        idx === 0 ? 'เล็ก' : idx === 1 ? 'กลาง' : toolMode === 'eraser' ? 'ใหญ่' : 'หนา';
+                      const label = isEn
+                        ? idx === 0
+                          ? 'S'
+                          : idx === 1
+                            ? 'M'
+                            : 'L'
+                        : idx === 0
+                          ? 'เล็ก'
+                          : idx === 1
+                            ? 'กลาง'
+                            : toolMode === 'eraser'
+                              ? 'ใหญ่'
+                              : 'หนา';
                       const isSelected =
                         toolMode === 'eraser'
                           ? eraserSize === w
@@ -1448,33 +1620,41 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           : 'bg-white text-slate-700 border-amber-200'
                       }`}
                     >
-                      <Eraser className="w-3 h-3" /> ยางลบ
+                      <Eraser className="w-3 h-3" /> {isEn ? 'Eraser' : 'ยางลบ'}
                     </button>
                     {toolMode === 'eraser' && (
                       <div className="inline-flex items-center justify-center rounded-[7px] border border-rose-200 bg-white p-[2px] text-[12px] font-semibold">
                         <button
                           type="button"
                           onClick={() => setEraserMode('partial')}
-                          title="ลบเฉพาะบริเวณที่หัวยางลบลากผ่าน"
+                          title={
+                            isEn
+                              ? 'Erase only where the eraser tip touches'
+                              : 'ลบเฉพาะบริเวณที่หัวยางลบลากผ่าน'
+                          }
                           className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             eraserMode === 'partial'
                               ? 'bg-rose-600 text-white shadow-xs'
                               : 'text-rose-700 hover:bg-rose-50'
                           }`}
                         >
-                          บางส่วน
+                          {isEn ? 'Partial' : 'บางส่วน'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setEraserMode('stroke')}
-                          title="แตะหรือลากผ่านเส้นไหน จะลบออกทั้งเส้น"
+                          title={
+                            isEn
+                              ? 'Touch any stroke to erase the whole stroke'
+                              : 'แตะหรือลากผ่านเส้นไหน จะลบออกทั้งเส้น'
+                          }
                           className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             eraserMode === 'stroke'
                               ? 'bg-rose-600 text-white shadow-xs'
                               : 'text-rose-700 hover:bg-rose-50'
                           }`}
                         >
-                          ทั้งเส้น
+                          {isEn ? 'Stroke' : 'ทั้งเส้น'}
                         </button>
                       </div>
                     )}
@@ -1495,33 +1675,41 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           toolMode === 'laser' ? 'bg-white' : 'bg-red-500'
                         }`}
                       />
-                      เลเซอร์
+                      {isEn ? 'Laser' : 'เลเซอร์'}
                     </button>
                     {toolMode === 'laser' && (
                       <div className="inline-flex items-center justify-center rounded-[7px] border border-red-200 bg-white p-[2px] text-[12px] font-semibold">
                         <button
                           type="button"
                           onClick={() => setLaserStyle('trail')}
-                          title="วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ"
+                          title={
+                            isEn
+                              ? 'Draw temporary circles/highlights that fade in 1.5s'
+                              : 'วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ'
+                          }
                           className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             laserStyle === 'trail'
                               ? 'bg-red-600 text-white shadow-xs'
                               : 'text-red-700 hover:bg-red-50'
                           }`}
                         >
-                          วง/ขีดค้าง
+                          {isEn ? 'Trail' : 'วง/ขีดค้าง'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setLaserStyle('dot')}
-                          title="เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา"
+                          title={
+                            isEn
+                              ? 'Simple red laser dot following the pointer'
+                              : 'เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา'
+                          }
                           className={`px-[6px] py-[2px] rounded-[5px] transition ${
                             laserStyle === 'dot'
                               ? 'bg-red-600 text-white shadow-xs'
                               : 'text-red-700 hover:bg-red-50'
                           }`}
                         >
-                          จุดชี้
+                          {isEn ? 'Dot' : 'จุดชี้'}
                         </button>
                       </div>
                     )}
@@ -1531,7 +1719,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                   <button
                     type="button"
                     onClick={() => setPencilOnly((p) => !p)}
-                    title="สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย"
+                    title={
+                      isEn
+                        ? 'Toggle Apple Pencil/mouse only (palm rejection) vs allow touch drawing'
+                        : 'สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย'
+                    }
                     className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
                       pencilOnly
                         ? 'bg-emerald-600 text-white border-emerald-600'
@@ -1541,12 +1733,12 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     {pencilOnly ? (
                       <>
                         <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>เฉพาะปากกา</span>
+                        <span>{isEn ? 'Pencil Only' : 'เฉพาะปากกา'}</span>
                       </>
                     ) : (
                       <>
                         <Hand className="w-3.5 h-3.5" />
-                        <span>นิ้ว+ปากกา</span>
+                        <span>{isEn ? 'Touch+Pen' : 'นิ้ว+ปากกา'}</span>
                       </>
                     )}
                   </button>
@@ -1559,7 +1751,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       disabled={!canUndo}
                       className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
                     >
-                      <RotateCcw className="w-3 h-3" /> ย้อน
+                      <RotateCcw className="w-3 h-3" /> {isEn ? 'Undo' : 'ย้อน'}
                     </button>
                     <button
                       type="button"
@@ -1567,7 +1759,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       disabled={currentStrokes.length === 0}
                       className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
                     >
-                      <Trash2 className="w-3 h-3" /> ล้างหน้า
+                      <Trash2 className="w-3 h-3" /> {isEn ? 'Clear Page' : 'ล้างหน้า'}
                     </button>
                     <button
                       type="button"
@@ -1575,7 +1767,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       disabled={annotatedSlideCount === 0}
                       className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
                     >
-                      <Trash2 className="w-3 h-3" /> ล้างหมด
+                      <Trash2 className="w-3 h-3" /> {isEn ? 'Clear All' : 'ล้างหมด'}
                     </button>
                   </div>
 
@@ -1584,14 +1776,14 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     className={`flex items-center gap-[2px] rounded-[8px] border border-amber-200 bg-white p-[2px] text-[12px] font-bold ${
                       isVertBar ? 'grid grid-cols-2' : ''
                     }`}
-                    title="ย้ายตำแหน่งแถบเครื่องมือเขียน"
+                    title={isEn ? 'Move annotation toolbar dock' : 'ย้ายตำแหน่งแถบเครื่องมือเขียน'}
                   >
                     {(
                       [
-                        { id: 'top', label: 'บน' },
-                        { id: 'bottom', label: 'ล่าง' },
-                        { id: 'left', label: 'ซ้าย' },
-                        { id: 'right', label: 'ขวา' },
+                        { id: 'top', label: isEn ? 'Top' : 'บน' },
+                        { id: 'bottom', label: isEn ? 'Bot' : 'ล่าง' },
+                        { id: 'left', label: isEn ? 'L' : 'ซ้าย' },
+                        { id: 'right', label: isEn ? 'R' : 'ขวา' },
                       ] as const
                     ).map((pos) => (
                       <button
@@ -1640,8 +1832,8 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
                       01417168
                     </span>
-                    <span className="text-sky-700">{slide.tagTh}</span>
-                    <span className="text-slate-400">• {slide.tagEn}</span>
+                    <span className="text-sky-700">{loc.primaryTag}</span>
+                    <span className="text-slate-400">• {loc.secondaryTag}</span>
                     {slide.embed3D && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[16px]">
                         <Sparkles className="w-3.5 h-3.5" /> Interactive 3D
@@ -1649,11 +1841,11 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                     )}
                   </div>
                   <h2 className={`${fs.title} font-extrabold text-slate-900 mt-0.5`}>
-                    {slide.titleTh}
+                    {loc.title}
                   </h2>
-                  <p className={`${fs.subtitle} text-slate-500`}>
-                    {slide.subtitle ?? slide.titleEn}
-                  </p>
+                  {loc.subtitle && (
+                    <p className={`${fs.subtitle} text-slate-500`}>{loc.subtitle}</p>
+                  )}
                 </div>
 
                 <div className="text-[20px] font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 shrink-0">
@@ -1669,39 +1861,40 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                 }`}
               >
                 <div className="relative flex-1 p-3.5 flex flex-col">
-                {slide.kind === 'example' && slide.examples ? (
+                {slide.kind === 'example' && loc.examples ? (
                   <div
                     className={`flex-1 min-h-0 flex flex-col ${
-                      slide.examples.length > 1 ? 'gap-2' : 'gap-2.5'
+                      loc.examples.length > 1 ? 'gap-2' : 'gap-2.5'
                     }`}
                   >
-                    {slide.examples.map((ex, exIdx) => (
+                    {loc.examples.map((ex, exIdx) => (
                       <div
                         key={exIdx}
                         className={`flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 ${
-                          slide.examples && slide.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-3.5 gap-2'
+                          loc.examples && loc.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-3.5 gap-2'
                         }`}
                       >
                         <div className="space-y-1.5">
                           <div className={`${fs.exPrompt} font-bold text-slate-900 leading-snug`}>
-                            {ex.label && (
+                            {ex.displayLabel && (
                               <span
                                 className={`mr-2 px-2.5 py-0.5 rounded-md text-[22px] font-bold ${
-                                  ex.label.includes('แนวข้อสอบ')
+                                  ex.displayLabel.includes('แนวข้อสอบ') ||
+                                  ex.displayLabel.includes('Drill')
                                     ? 'bg-rose-100 text-rose-800 border border-rose-200'
                                     : 'bg-sky-100 text-sky-800'
                                 }`}
                               >
-                                {ex.label}
+                                {ex.displayLabel}
                               </span>
                             )}
-                            <RichMathText text={ex.promptTh} />
+                            <RichMathText text={ex.displayPrompt} />
                           </div>
-                          {ex.promptLatex && (
+                          {ex.displayLatex && (
                             <div
                               className={`px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 inline-block max-w-full overflow-x-auto overflow-y-hidden leading-normal text-sky-900 ${fs.exLatex}`}
                             >
-                              <KaTeX math={ex.promptLatex} />
+                              <KaTeX math={ex.displayLatex} />
                             </div>
                           )}
                         </div>
@@ -1710,7 +1903,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                           const writeArea = (
                             <div
                               className={`${ex.scene3D ? 'col-span-8 h-full' : 'flex-1'} ${
-                                slide.examples && slide.examples.length > 1
+                                loc.examples && loc.examples.length > 1
                                   ? 'min-h-[100px]'
                                   : 'min-h-[180px]'
                               } rounded-2xl border border-dashed border-slate-300 bg-white p-3 flex items-end justify-end text-xs text-slate-400`}
@@ -1719,7 +1912,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                                 backgroundSize: '20px 20px',
                               }}
                             >
-                              เปิด “เขียน” เพื่อเขียนวิธีทำสดด้วย Apple Pencil
+                              {isEn
+                                ? 'Enable "Write" to annotate live with Apple Pencil'
+                                : 'เปิด “เขียน” เพื่อเขียนวิธีทำสดด้วย Apple Pencil'}
                             </div>
                           );
 
@@ -1734,9 +1929,10 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                               >
                                 <MiniScene3D
                                   customScene={ex.scene3D}
-                                  hintTh={ex.scene3D.hintTh}
+                                  hintTh={ex.displaySceneHint}
                                   compact
                                   aboveInk={drawEnabled && toolMode !== 'laser'}
+                                  lang={lang}
                                 />
                               </div>
                             </div>
@@ -1760,7 +1956,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                             : 'my-auto flex flex-col gap-2.5'
                       }
                     >
-                      {slide.cards?.map((card, cIdx) => (
+                      {loc.cards?.map((card, cIdx) => (
                         <div
                           key={cIdx}
                           className={`rounded-2xl border border-slate-200 bg-slate-50/70 ${
@@ -1829,8 +2025,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
                       >
                         <MiniScene3D
                           embed={slide.embed3D}
-                          hintTh={slide.embedHintTh}
+                          hintTh={loc.embedHint}
                           aboveInk={drawEnabled && toolMode !== 'laser'}
+                          lang={lang}
                         />
                       </div>
                     )}
@@ -1867,7 +2064,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs sm:text-sm font-bold text-slate-700 disabled:opacity-40 transition"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>ก่อนหน้า</span>
+            <span>{isEn ? 'Previous' : 'ก่อนหน้า'}</span>
           </button>
 
           <div className="flex-1 max-w-md flex flex-col items-center gap-1">
@@ -1878,7 +2075,9 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
               />
             </div>
             <div className="text-xs font-semibold text-slate-600">
-              หน้า {safeSlideIdx + 1} / {totalSlides} • คาบที่ {slide.lecture}
+              {isEn
+                ? `Slide ${safeSlideIdx + 1} / ${totalSlides} • Lecture ${slide.lecture}`
+                : `หน้า ${safeSlideIdx + 1} / ${totalSlides} • คาบที่ ${slide.lecture}`}
             </div>
           </div>
 
@@ -1888,7 +2087,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
             disabled={safeSlideIdx === totalSlides - 1}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold shadow-sm disabled:opacity-40 transition"
           >
-            <span>ถัดไป</span>
+            <span>{isEn ? 'Next' : 'ถัดไป'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </footer>
@@ -1899,6 +2098,7 @@ export function SlidesDeck({ onBackToDashboard }: SlidesDeckProps) {
         includeInk={printIncludeInk}
         inkImagesBySlide={inkImagesBySlide}
         printScope={exportScope}
+        lang={lang}
       />
     </>
   );

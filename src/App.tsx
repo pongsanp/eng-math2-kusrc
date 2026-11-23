@@ -99,6 +99,11 @@ import { PartialsTangentPanel } from './components/panels/ch3/PartialsTangentPan
 import { GradientDirPanel } from './components/panels/ch3/GradientDirPanel';
 import { ExtremaPanel } from './components/panels/ch3/ExtremaPanel';
 import { SlidesDeck } from './components/slides/SlidesDeck';
+import {
+  persistSlideLang,
+  resolveInitialSlideLang,
+  type SlideLang,
+} from './slides/inkUtils';
 
 const CH1_TABS: Array<{
   id: Ch1ModuleTab;
@@ -139,7 +144,20 @@ const CH3_TABS: Array<{
 ];
 
 export default function App() {
-  const [appView, setAppView] = useState<'dashboard' | 'slides'>('dashboard');
+  const [appView, setAppView] = useState<'dashboard' | 'slides'>(() => {
+    try {
+      const view = new URLSearchParams(window.location.search).get('view')?.toLowerCase();
+      if (view === 'slides') return 'slides';
+    } catch {
+      // Ignore URL parse error
+    }
+    return 'dashboard';
+  });
+  const [slideLang, setSlideLang] = useState<SlideLang>(() => resolveInitialSlideLang());
+  const handleChangeSlideLang = useCallback((nextLang: SlideLang) => {
+    setSlideLang(nextLang);
+    persistSlideLang(nextLang);
+  }, []);
   const [activeChapter, setActiveChapter] = useState<ChapterId>('ch1');
   const [ch1Tab, setCh1Tab] = useState<Ch1ModuleTab>('coords_vec');
   const [activeTab, setActiveTab] = useState<ModuleTab>('quadrics');
@@ -621,7 +639,13 @@ export default function App() {
   };
 
   if (appView === 'slides') {
-    return <SlidesDeck onBackToDashboard={() => setAppView('dashboard')} />;
+    return (
+      <SlidesDeck
+        lang={slideLang}
+        onChangeLang={handleChangeSlideLang}
+        onBackToDashboard={() => setAppView('dashboard')}
+      />
+    );
   }
 
   return (
@@ -754,11 +778,15 @@ export default function App() {
           <button
             type="button"
             onClick={() => setAppView('slides')}
-            title="เปิดสไลด์การสอนบทที่ 1 (พร้อม 3D, เขียนบน iPad และ Export PDF)"
+            title={
+              slideLang === 'en'
+                ? 'Open Chapter 1 lecture slides (3D + Annotation + PDF Export)'
+                : 'เปิดสไลด์การสอนบทที่ 1 (พร้อม 3D, เขียนบน iPad และ Export PDF)'
+            }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition"
           >
             <Presentation className="w-3.5 h-3.5" />
-            <span>สไลด์บท 1</span>
+            <span>{slideLang === 'en' ? 'Ch. 1 Slides' : 'สไลด์บท 1'}</span>
           </button>
 
           <button
