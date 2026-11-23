@@ -154,6 +154,7 @@ export interface LineEquationsLatex {
 export function buildLineEquationsLatex(
   p0: Vec3Tuple,
   dir: Vec3Tuple,
+  lang: 'th' | 'en' = 'th',
 ): LineEquationsLatex {
   const isDegenerate = vecNorm(dir) < 1e-6;
   const vector = `\\mathbf{r}(t) = ${fmtVecAngle(p0)} + t${fmtVecAngle(dir)}`;
@@ -166,7 +167,10 @@ export function buildLineEquationsLatex(
     return {
       vector,
       parametric,
-      symmetric: `\\text{เวกเตอร์ทิศทาง } \\mathbf{v} = \\mathbf{0} \\;(\\text{จุด } ${fmtPoint(p0)})`,
+      symmetric:
+        lang === 'en'
+          ? `\\text{Direction vector } \\mathbf{v} = \\mathbf{0} \\;(\\text{point } ${fmtPoint(p0)})`
+          : `\\text{เวกเตอร์ทิศทาง } \\mathbf{v} = \\mathbf{0} \\;(\\text{จุด } ${fmtPoint(p0)})`,
       isDegenerate: true,
     };
   }

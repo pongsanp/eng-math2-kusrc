@@ -148,6 +148,7 @@ export function evaluatePathLimit(
   funcId: Ch3LimitFuncId,
   pathType: 'line' | 'parabola',
   param: number,
+  lang: 'th' | 'en' = 'th',
 ): {
   pathLatex: string;
   limitVal: number;
@@ -195,7 +196,10 @@ export function evaluatePathLimit(
   return {
     pathLatex,
     limitVal: 2,
-    derivationLatex: `\\lim_{(x,y)\\to(0,0)} \\frac{2\\sin(r^2)}{r^2} = 2 \\;\\;(\\text{เหมือนกันทุกเส้นทาง})`,
+    derivationLatex:
+      lang === 'en'
+        ? `\\lim_{(x,y)\\to(0,0)} \\frac{2\\sin(r^2)}{r^2} = 2 \\;\\;(\\text{same along all paths})`
+        : `\\lim_{(x,y)\\to(0,0)} \\frac{2\\sin(r^2)}{r^2} = 2 \\;\\;(\\text{เหมือนกันทุกเส้นทาง})`,
   };
 }
 

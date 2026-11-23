@@ -1,4 +1,4 @@
-import type { Ch3ExtremaPresetId, Ch3ExtremaState } from '../../../types';
+import type { AppLang, Ch3ExtremaPresetId, Ch3ExtremaState } from '../../../types';
 import { EXTREMA_PRESETS, classifySecondDeriv } from '../../../math/multivar';
 import { fmtNum } from '../../../math/latex';
 import { KaTeX } from '../../KaTeX';
@@ -7,6 +7,7 @@ import { SliderControl } from '../../SliderControl';
 interface ExtremaPanelProps {
   state: Ch3ExtremaState;
   onChange: (next: Ch3ExtremaState) => void;
+  lang?: AppLang;
 }
 
 const PRESET_IDS: Ch3ExtremaPresetId[] = [
@@ -15,7 +16,8 @@ const PRESET_IDS: Ch3ExtremaPresetId[] = [
   'double_peak',
 ];
 
-export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
+export function ExtremaPanel({ state, onChange, lang = 'th' }: ExtremaPanelProps) {
+  const isEn = lang === 'en';
   const update = (patch: Partial<Ch3ExtremaState>) => onChange({ ...state, ...patch });
 
   const quadCp = classifySecondDeriv(
@@ -41,7 +43,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
               : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'
           }`}
         >
-          ทดลองค่า D (Ax²+Bxy+Cy²)
+          {isEn ? 'Test D (Ax²+Bxy+Cy²)' : 'ทดลองค่า D (Ax²+Bxy+Cy²)'}
         </button>
         <button
           type="button"
@@ -52,7 +54,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
               : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200'
           }`}
         >
-          โจทย์หลายจุดวิกฤต
+          {isEn ? 'Multiple Critical Points' : 'โจทย์หลายจุดวิกฤต'}
         </button>
       </div>
 
@@ -60,10 +62,10 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
         <>
           <div className="flex flex-wrap gap-1.5">
             {[
-              { label: 'ต่ำสุด (Min)', a: 0.6, b: 0, c: 0.6 },
-              { label: 'สูงสุด (Max)', a: -0.6, b: 0, c: -0.6 },
-              { label: 'อานม้า (Saddle)', a: 0.6, b: 0, c: -0.6 },
-              { label: 'พจน์ xy คว่ำ', a: 0.4, b: 1.4, c: 0.4 },
+              { label: isEn ? 'Local Min' : 'ต่ำสุด (Min)', a: 0.6, b: 0, c: 0.6 },
+              { label: isEn ? 'Local Max' : 'สูงสุด (Max)', a: -0.6, b: 0, c: -0.6 },
+              { label: isEn ? 'Saddle Point' : 'อานม้า (Saddle)', a: 0.6, b: 0, c: -0.6 },
+              { label: isEn ? 'Cross-term xy' : 'พจน์ xy คว่ำ', a: 0.4, b: 1.4, c: 0.4 },
             ].map((q) => (
               <button
                 key={q.label}
@@ -78,10 +80,10 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
 
           <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-              ปรับสัมประสิทธิ์ z = Ax² + Bxy + Cy²
+              {isEn ? 'Coefficients for z = Ax² + Bxy + Cy²' : 'ปรับสัมประสิทธิ์ z = Ax² + Bxy + Cy²'}
             </div>
             <SliderControl
-              label="A (สัมประสิทธิ์ x²)"
+              label={isEn ? 'A (x²-coefficient)' : 'A (สัมประสิทธิ์ x²)'}
               value={state.quadA}
               min={-1}
               max={1}
@@ -89,7 +91,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
               onChange={(quadA) => update({ quadA })}
             />
             <SliderControl
-              label="B (สัมประสิทธิ์ xy)"
+              label={isEn ? 'B (xy-coefficient)' : 'B (สัมประสิทธิ์ xy)'}
               value={state.quadB}
               min={-2}
               max={2}
@@ -97,7 +99,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
               onChange={(quadB) => update({ quadB })}
             />
             <SliderControl
-              label="C (สัมประสิทธิ์ y²)"
+              label={isEn ? 'C (y²-coefficient)' : 'C (สัมประสิทธิ์ y²)'}
               value={state.quadC}
               min={-1}
               max={1}
@@ -108,7 +110,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
 
           <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 space-y-2 text-xs">
             <div className="font-bold text-slate-700 dark:text-slate-200">
-              การทดสอบอนุพันธ์อันดับสองที่ (0, 0)
+              {isEn ? 'Second Derivative Test at (0, 0)' : 'การทดสอบอนุพันธ์อันดับสองที่ (0, 0)'}
             </div>
             <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 overflow-x-auto overflow-y-hidden leading-normal">
               <KaTeX
@@ -124,7 +126,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
               className="px-3 py-2 rounded-xl font-bold text-white text-center shadow-sm"
               style={{ backgroundColor: quadCp.color }}
             >
-              {quadCp.label.th} ({quadCp.label.en})
+              {isEn ? quadCp.label.en : `${quadCp.label.th} (${quadCp.label.en})`}
             </div>
           </div>
         </>
@@ -145,8 +147,8 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
                       : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
                   }`}
                 >
-                  <span className="truncate">{p.name.th}</span>
-                  <span className="text-[10px] opacity-75 shrink-0">{p.name.en}</span>
+                  <span className="truncate">{isEn ? p.name.en : p.name.th}</span>
+                  {!isEn && <span className="text-[10px] opacity-75 shrink-0">{p.name.en}</span>}
                 </button>
               );
             })}
@@ -154,7 +156,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
 
           <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 space-y-2 text-xs">
             <div className="font-bold text-slate-700 dark:text-slate-200">
-              ตารางสรุปจุดวิกฤตทั้งหมด (Critical Points)
+              {isEn ? 'All Critical Points Summary' : 'ตารางสรุปจุดวิกฤตทั้งหมด (Critical Points)'}
             </div>
             <div className="space-y-1.5">
               {preset.criticalPoints.map((cp, idx) => (
@@ -168,7 +170,7 @@ export function ExtremaPanel({ state, onChange }: ExtremaPanelProps) {
                       ({fmtNum(cp.x)}, {fmtNum(cp.y)}, {fmtNum(cp.z)})
                     </span>
                     <span className="font-bold" style={{ color: cp.color }}>
-                      {cp.label.th}
+                      {isEn ? cp.label.en : cp.label.th}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">

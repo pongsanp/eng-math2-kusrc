@@ -1,4 +1,4 @@
-import type { Vec3Tuple } from '../types';
+import type { AppLang, Vec3Tuple } from '../types';
 import { fmtNum } from '../math/latex';
 import { SliderControl } from './SliderControl';
 
@@ -10,6 +10,7 @@ interface Vec3SliderGroupProps {
   step?: number;
   badgeColor?: string;
   isPoint?: boolean;
+  lang?: AppLang;
   onChange: (next: Vec3Tuple) => void;
 }
 
@@ -21,8 +22,10 @@ export function Vec3SliderGroup({
   step = 0.5,
   badgeColor = 'text-sky-700 dark:text-sky-300',
   isPoint = false,
+  lang = 'th',
   onChange,
 }: Vec3SliderGroupProps) {
+  const isEn = lang === 'en';
   const formatted = isPoint
     ? `(${fmtNum(value[0])}, ${fmtNum(value[1])}, ${fmtNum(value[2])})`
     : `⟨${fmtNum(value[0])}, ${fmtNum(value[1])}, ${fmtNum(value[2])}⟩`;
@@ -38,7 +41,7 @@ export function Vec3SliderGroup({
         </span>
       </div>
       <SliderControl
-        label={isPoint ? 'x' : 'องค์ประกอบ x'}
+        label={isPoint ? 'x' : isEn ? 'x-component' : 'องค์ประกอบ x'}
         value={value[0]}
         min={min}
         max={max}
@@ -47,7 +50,7 @@ export function Vec3SliderGroup({
         onChange={(x) => onChange([x, value[1], value[2]])}
       />
       <SliderControl
-        label={isPoint ? 'y' : 'องค์ประกอบ y'}
+        label={isPoint ? 'y' : isEn ? 'y-component' : 'องค์ประกอบ y'}
         value={value[1]}
         min={min}
         max={max}
@@ -56,7 +59,7 @@ export function Vec3SliderGroup({
         onChange={(y) => onChange([value[0], y, value[2]])}
       />
       <SliderControl
-        label={isPoint ? 'z' : 'องค์ประกอบ z'}
+        label={isPoint ? 'z' : isEn ? 'z-component' : 'องค์ประกอบ z'}
         value={value[2]}
         min={min}
         max={max}

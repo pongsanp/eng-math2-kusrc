@@ -1,4 +1,4 @@
-import type { Ch3GradientState } from '../../../types';
+import type { AppLang, Ch3GradientState } from '../../../types';
 import { MULTIVAR_FUNCS } from '../../../math/multivar';
 import { fmtNum } from '../../../math/latex';
 import { KaTeX } from '../../KaTeX';
@@ -7,11 +7,13 @@ import { SliderControl } from '../../SliderControl';
 interface GradientDirPanelProps {
   state: Ch3GradientState;
   onChange: (next: Ch3GradientState) => void;
+  lang?: AppLang;
 }
 
 const FUNC_IDS = ['gaussian', 'paraboloid_down', 'saddle', 'waves'] as const;
 
-export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
+export function GradientDirPanel({ state, onChange, lang = 'th' }: GradientDirPanelProps) {
+  const isEn = lang === 'en';
   const update = (patch: Partial<Ch3GradientState>) => onChange({ ...state, ...patch });
   const spec = MULTIVAR_FUNCS[state.funcId];
   const gx = spec.fx(state.x0, state.y0, 1);
@@ -34,7 +36,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
     <div className="space-y-4">
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-          เลือกพื้นผิว z = f(x, y)
+          {isEn ? 'Select Surface z = f(x, y)' : 'เลือกพื้นผิว z = f(x, y)'}
         </h3>
         <div className="grid grid-cols-2 gap-1.5">
           {FUNC_IDS.map((fid) => {
@@ -51,7 +53,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
                     : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <div className="truncate">{f.name.th}</div>
+                <div className="truncate">{isEn ? f.name.en : f.name.th}</div>
               </button>
             );
           })}
@@ -60,7 +62,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
 
       <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-          ตำแหน่งจุด (x₀, y₀)
+          {isEn ? 'Point Position (x₀, y₀)' : 'ตำแหน่งจุด (x₀, y₀)'}
         </div>
         <SliderControl
           label="x₀"
@@ -82,7 +84,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
 
       <div className="p-3.5 rounded-2xl border border-violet-200 dark:border-violet-900/60 bg-violet-50/40 dark:bg-violet-950/25 space-y-2.5">
         <SliderControl
-          label="มุมทิศทาง θ ของ u = ⟨cos θ, sin θ⟩"
+          label={isEn ? 'Direction Angle θ of u = ⟨cos θ, sin θ⟩' : 'มุมทิศทาง θ ของ u = ⟨cos θ, sin θ⟩'}
           value={state.thetaDeg}
           min={0}
           max={360}
@@ -98,7 +100,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
             disabled={gNorm < 1e-6}
             className="py-1.5 px-1.5 rounded-xl border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/50 text-orange-800 dark:text-orange-200 text-[11px] font-bold hover:bg-orange-100 disabled:opacity-40"
           >
-            ทิศ ∇f (ชันสุด)
+            {isEn ? 'Along ∇f (Max)' : 'ทิศ ∇f (ชันสุด)'}
           </button>
           <button
             type="button"
@@ -106,7 +108,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
             disabled={gNorm < 1e-6}
             className="py-1.5 px-1.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 text-[11px] font-bold hover:bg-rose-100 disabled:opacity-40"
           >
-            ทิศ -∇f (ลงสุด)
+            {isEn ? 'Along -∇f (Min)' : 'ทิศ -∇f (ลงสุด)'}
           </button>
           <button
             type="button"
@@ -114,7 +116,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
             disabled={gNorm < 1e-6}
             className="py-1.5 px-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 text-sky-800 dark:text-sky-200 text-[11px] font-bold hover:bg-sky-100 disabled:opacity-40"
           >
-            ตั้งฉาก ∇f (=0)
+            {isEn ? 'Orthogonal (= 0)' : 'ตั้งฉาก ∇f (=0)'}
           </button>
         </div>
       </div>
@@ -123,7 +125,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
       <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 space-y-2 text-xs">
         <div className="p-2.5 rounded-xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200/70 dark:border-orange-900/60 space-y-1">
           <div className="text-[11px] font-semibold text-orange-800 dark:text-orange-300">
-            เวกเตอร์เกรเดียนต์ (Gradient Vector — ตั้งฉากเส้นชั้นระดับเสมอ)
+            {isEn ? 'Gradient Vector (⊥ Level Curves)' : 'เวกเตอร์เกรเดียนต์ (Gradient Vector — ตั้งฉากเส้นชั้นระดับเสมอ)'}
           </div>
           <div className="overflow-x-auto overflow-y-hidden leading-normal">
             <KaTeX math={`\\nabla f = \\langle ${fmtNum(gx)},\\, ${fmtNum(gy)} \\rangle,\\quad \\|\\nabla f\\| = ${fmtNum(gNorm)}`} />
@@ -132,10 +134,16 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
 
         <div className="p-2.5 rounded-xl bg-violet-50/70 dark:bg-violet-950/30 border border-violet-200/70 dark:border-violet-900/60 space-y-1">
           <div className="text-[11px] font-semibold text-violet-800 dark:text-violet-300">
-            อนุพันธ์ระบุทิศ (Directional Derivative D_u f = ∇f · u)
+            {isEn ? 'Directional Derivative (D_u f = ∇f · u)' : 'อนุพันธ์ระบุทิศ (Directional Derivative D_u f = ∇f · u)'}
           </div>
           <div className="overflow-x-auto overflow-y-hidden leading-normal">
-            <KaTeX math={`D_{\\mathbf{u}}f = ${fmtNum(duf)} \\quad (\\text{สูงสุด } +${fmtNum(gNorm)},\\; \\text{ต่ำสุด } -${fmtNum(gNorm)})`} />
+            <KaTeX
+              math={
+                isEn
+                  ? `D_{\\mathbf{u}}f = ${fmtNum(duf)} \\quad (\\text{max } +${fmtNum(gNorm)},\\; \\text{min } -${fmtNum(gNorm)})`
+                  : `D_{\\mathbf{u}}f = ${fmtNum(duf)} \\quad (\\text{สูงสุด } +${fmtNum(gNorm)},\\; \\text{ต่ำสุด } -${fmtNum(gNorm)})`
+              }
+            />
           </div>
         </div>
       </div>
@@ -143,7 +151,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
       <div className="space-y-2 text-xs">
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            แสดงลูกศร ∇f บนระนาบ xy (สีส้ม)
+            {isEn ? 'Show Gradient Arrow ∇f on xy-plane (Orange)' : 'แสดงลูกศร ∇f บนระนาบ xy (สีส้ม)'}
           </span>
           <input
             type="checkbox"
@@ -154,7 +162,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
         </label>
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            แสดงเส้นชั้นระดับผ่านจุด P₀ (Level Curve)
+            {isEn ? 'Show Level Curve Through P₀' : 'แสดงเส้นชั้นระดับผ่านจุด P₀ (Level Curve)'}
           </span>
           <input
             type="checkbox"
@@ -165,7 +173,7 @@ export function GradientDirPanel({ state, onChange }: GradientDirPanelProps) {
         </label>
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            แสดงเวกเตอร์สัมผัสความชัน D_u f บนผิว (สีม่วง)
+            {isEn ? 'Show Directional Tangent Slope Vector on Surface (Violet)' : 'แสดงเวกเตอร์สัมผัสความชัน D_u f บนผิว (สีม่วง)'}
           </span>
           <input
             type="checkbox"

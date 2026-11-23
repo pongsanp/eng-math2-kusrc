@@ -1,4 +1,4 @@
-import type { AxisName, QuadricMode, QuadricsState } from '../../types';
+import type { AppLang, AxisName, QuadricMode, QuadricsState } from '../../types';
 import { QUADRIC_INFO, QUADRIC_PRESETS } from '../../math/presets';
 import { axisVarNames } from '../../math/coords';
 import { SliderControl } from '../SliderControl';
@@ -6,6 +6,7 @@ import { SliderControl } from '../SliderControl';
 interface QuadricsPanelProps {
   state: QuadricsState;
   onChange: (next: QuadricsState) => void;
+  lang?: AppLang;
 }
 
 const QUADRIC_MODES: QuadricMode[] = [
@@ -20,7 +21,8 @@ const QUADRIC_MODES: QuadricMode[] = [
 
 const AXES: AxisName[] = ['x', 'y', 'z'];
 
-export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
+export function QuadricsPanel({ state, onChange, lang = 'th' }: QuadricsPanelProps) {
+  const isEn = lang === 'en';
   const update = (patch: Partial<QuadricsState>) => onChange({ ...state, ...patch });
   const { u, v, w } = axisVarNames(state.symmetryAxis);
   const info = QUADRIC_INFO[state.mode];
@@ -32,11 +34,11 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
   let morphStatus = '';
   if (state.mode === 'morph') {
     if (Math.abs(state.morphD) < 0.04) {
-      morphStatus = 'd = 0 → กรวยวงรี (Elliptic Cone)';
+      morphStatus = isEn ? 'd = 0 → Elliptic Cone' : 'd = 0 → กรวยวงรี (Elliptic Cone)';
     } else if (state.morphD > 0) {
-      morphStatus = 'd > 0 → ไฮเพอร์โบลอยด์ 1 ชิ้น (1-Sheet)';
+      morphStatus = isEn ? 'd > 0 → 1-Sheet Hyperboloid' : 'd > 0 → ไฮเพอร์โบลอยด์ 1 ชิ้น (1-Sheet)';
     } else {
-      morphStatus = 'd < 0 → ไฮเพอร์โบลอยด์ 2 ชิ้น (2-Sheet)';
+      morphStatus = isEn ? 'd < 0 → 2-Sheet Hyperboloid' : 'd < 0 → ไฮเพอร์โบลอยด์ 2 ชิ้น (2-Sheet)';
     }
   }
 
@@ -45,7 +47,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
       {/* Presets */}
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-          ตัวอย่างประกอบการสอน (Presets)
+          {isEn ? 'Examples (Presets)' : 'ตัวอย่างประกอบการสอน (Presets)'}
         </h3>
         <div className="flex flex-wrap gap-1.5">
           {QUADRIC_PRESETS.map((p) => (
@@ -55,7 +57,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
               onClick={() => update(p.value)}
               className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-[11px] font-semibold text-slate-700 dark:text-slate-200"
             >
-              {p.label.th}
+              {isEn ? p.label.en : p.label.th}
             </button>
           ))}
         </div>
@@ -64,7 +66,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
       {/* Mode Selector */}
       <div>
         <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
-          ชนิดพื้นผิวกำลังสอง (Quadric Surface Type)
+          {isEn ? 'Quadric Surface Type' : 'ชนิดพื้นผิวกำลังสอง (Quadric Surface Type)'}
         </label>
         <div className="grid grid-cols-1 gap-1.5">
           {QUADRIC_MODES.map((m) => {
@@ -83,8 +85,10 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
                     : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 hover:border-slate-300'
                 }`}
               >
-                <span className="truncate">{QUADRIC_INFO[m].name.th}</span>
-                <span className="text-[10px] opacity-75 shrink-0">{QUADRIC_INFO[m].name.en}</span>
+                <span className="truncate">{isEn ? QUADRIC_INFO[m].name.en : QUADRIC_INFO[m].name.th}</span>
+                {!isEn && (
+                  <span className="text-[10px] opacity-75 shrink-0">{QUADRIC_INFO[m].name.en}</span>
+                )}
               </button>
             );
           })}
@@ -93,9 +97,11 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
 
       {/* Summary Note */}
       <div className="px-3 py-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs space-y-0.5">
-        <div className="font-semibold text-sky-900 dark:text-sky-200">{info.name.th}</div>
+        <div className="font-semibold text-sky-900 dark:text-sky-200">
+          {isEn ? info.name.en : info.name.th}
+        </div>
         <div className="text-[11px] text-sky-800/90 dark:text-sky-300/90 leading-relaxed">
-          {info.summary.th}
+          {isEn ? info.summary.en : info.summary.th}
         </div>
       </div>
 
@@ -104,14 +110,14 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
         <div className="p-3.5 rounded-2xl border border-violet-300 dark:border-violet-800 bg-violet-50/70 dark:bg-violet-950/40 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-violet-900 dark:text-violet-200">
-              ค่าคงตัว d (Morph Parameter)
+              {isEn ? 'Morph Parameter d' : 'ค่าคงตัว d (Morph Parameter)'}
             </span>
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-200/70 dark:bg-violet-900 text-violet-900 dark:text-violet-100">
               {morphStatus}
             </span>
           </div>
           <SliderControl
-            label="ค่า d (ฝั่งขวาของสมการ)"
+            label={isEn ? 'd (RHS constant)' : 'ค่า d (ฝั่งขวาของสมการ)'}
             value={state.morphD}
             min={-2}
             max={2}
@@ -121,9 +127,9 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
           />
           <div className="flex justify-between gap-1.5 pt-0.5">
             {[
-              { label: 'd = 1 (1 ชิ้น)', val: 1 },
-              { label: 'd = 0 (กรวย)', val: 0 },
-              { label: 'd = -1 (2 ชิ้น)', val: -1 },
+              { label: isEn ? 'd = 1 (1-Sheet)' : 'd = 1 (1 ชิ้น)', val: 1 },
+              { label: isEn ? 'd = 0 (Cone)' : 'd = 0 (กรวย)', val: 0 },
+              { label: isEn ? 'd = -1 (2-Sheet)' : 'd = -1 (2 ชิ้น)', val: -1 },
             ].map((q) => (
               <button
                 key={q.val}
@@ -142,7 +148,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
       {!isEllipsoid && (
         <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
           <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-            แกนสมมาตรของพื้นผิว (Symmetry Axis)
+            {isEn ? 'Symmetry Axis' : 'แกนสมมาตรของพื้นผิว (Symmetry Axis)'}
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             {AXES.map((ax) => (
@@ -156,7 +162,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
                 }`}
               >
-                แกน {ax}
+                {isEn ? `${ax}-axis` : `แกน ${ax}`}
               </button>
             ))}
           </div>
@@ -164,7 +170,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
           {isParaboloid && (
             <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-1.5">
               <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                ทิศทางเปิด / เครื่องหมายสมการ (Sign / Orientation)
+                {isEn ? 'Sign / Opening Orientation' : 'ทิศทางเปิด / เครื่องหมายสมการ (Sign / Orientation)'}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -176,7 +182,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
                       : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
                   }`}
                 >
-                  +{w} (หงาย / ด้านบวก)
+                  {isEn ? `+${w} (opens +)` : `+${w} (หงาย / ด้านบวก)`}
                 </button>
                 <button
                   type="button"
@@ -187,7 +193,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
                       : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-rose-400'
                   }`}
                 >
-                  -{w} (คว่ำ / ด้านลบ)
+                  {isEn ? `-${w} (opens -)` : `-${w} (คว่ำ / ด้านลบ)`}
                 </button>
               </div>
             </div>
@@ -198,10 +204,18 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
       {/* Parameters a, b, c */}
       <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-          พารามิเตอร์สเกล (Scale Parameters)
+          {isEn ? 'Scale Parameters' : 'พารามิเตอร์สเกล (Scale Parameters)'}
         </div>
         <SliderControl
-          label={isEllipsoid ? 'a (รัศมีแกน x)' : `a (สเกลแกน ${u})`}
+          label={
+            isEn
+              ? isEllipsoid
+                ? 'a (x-radius)'
+                : `a (${u}-scale)`
+              : isEllipsoid
+                ? 'a (รัศมีแกน x)'
+                : `a (สเกลแกน ${u})`
+          }
           value={state.a}
           min={0.5}
           max={4}
@@ -209,7 +223,15 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
           onChange={(a) => update({ a })}
         />
         <SliderControl
-          label={isEllipsoid ? 'b (รัศมีแกน y)' : `b (สเกลแกน ${v})`}
+          label={
+            isEn
+              ? isEllipsoid
+                ? 'b (y-radius)'
+                : `b (${v}-scale)`
+              : isEllipsoid
+                ? 'b (รัศมีแกน y)'
+                : `b (สเกลแกน ${v})`
+          }
           value={state.b}
           min={0.5}
           max={4}
@@ -218,7 +240,15 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
         />
         {!isParaboloid && (
           <SliderControl
-            label={isEllipsoid ? 'c (รัศมีแกน z)' : `c (สเกลแกน ${w})`}
+            label={
+              isEn
+                ? isEllipsoid
+                  ? 'c (z-radius)'
+                  : `c (${w}-scale)`
+                : isEllipsoid
+                  ? 'c (รัศมีแกน z)'
+                  : `c (สเกลแกน ${w})`
+            }
             value={state.c}
             min={0.5}
             max={4}
@@ -233,10 +263,10 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
         <label className="flex items-center justify-between cursor-pointer">
           <div>
             <div className="text-xs font-bold text-amber-900 dark:text-amber-200">
-              ระนาบตัดและรอยตัด (Slicing Plane & Traces)
+              {isEn ? 'Slicing Plane & Traces' : 'ระนาบตัดและรอยตัด (Slicing Plane & Traces)'}
             </div>
             <div className="text-[11px] text-amber-700 dark:text-amber-300/80">
-              แสดงกราฟรอยตัด 2 มิติคู่กับเส้นตัด 3 มิติ
+              {isEn ? 'Show 2D cross-section trace alongside 3D cut' : 'แสดงกราฟรอยตัด 2 มิติคู่กับเส้นตัด 3 มิติ'}
             </div>
           </div>
           <input
@@ -266,7 +296,7 @@ export function QuadricsPanel({ state, onChange }: QuadricsPanelProps) {
               ))}
             </div>
             <SliderControl
-              label={`ตำแหน่งระนาบตัด (${state.slicePlane} = k)`}
+              label={isEn ? `Slice Plane Level (${state.slicePlane} = k)` : `ตำแหน่งระนาบตัด (${state.slicePlane} = k)`}
               value={state.sliceK}
               min={-4}
               max={4}

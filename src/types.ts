@@ -1,3 +1,5 @@
+export type AppLang = 'th' | 'en';
+
 export type AxisName = 'x' | 'y' | 'z';
 
 export type ChapterId = 'ch1' | 'ch2' | 'ch3';

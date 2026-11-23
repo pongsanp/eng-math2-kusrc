@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
-import type { Ch3LevelCurvesState } from '../types';
+import type { AppLang, Ch3LevelCurvesState } from '../types';
 import { MULTIVAR_FUNCS, extractContours2D } from '../math/multivar';
 import { fmtNum } from '../math/latex';
 import { KaTeX } from './KaTeX';
 
 interface Contour2DCardProps {
   state: Ch3LevelCurvesState;
+  lang?: AppLang;
 }
 
 const CONTOUR_LEVELS: Array<{ z: number; color: string }> = [
@@ -18,7 +19,8 @@ const CONTOUR_LEVELS: Array<{ z: number; color: string }> = [
   { z: 2.8, color: '#ef4444' },
 ];
 
-export function Contour2DCard({ state }: Contour2DCardProps) {
+export function Contour2DCard({ state, lang = 'th' }: Contour2DCardProps) {
+  const isEn = lang === 'en';
   const spec = MULTIVAR_FUNCS[state.funcId];
   const R = spec.domainR;
   const size = 180;
@@ -44,7 +46,7 @@ export function Contour2DCard({ state }: Contour2DCardProps) {
     <div className="w-64 sm:w-72 rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white/92 dark:bg-slate-900/92 backdrop-blur-md shadow-xl p-3.5 text-slate-800 dark:text-slate-100">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-          แผนที่เส้นชั้นระดับ (Contour Map)
+          {isEn ? 'Contour Map (Level Curves)' : 'แผนที่เส้นชั้นระดับ (Contour Map)'}
         </div>
         <div className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-300/60 dark:border-amber-700/60">
           <KaTeX math={`z = ${fmtNum(state.sliceK)}`} />
@@ -110,9 +112,15 @@ export function Contour2DCard({ state }: Contour2DCardProps) {
       </div>
 
       <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-        <span>เส้นสีทอง = ระดับที่กำลังตัด</span>
+        <span>{isEn ? 'Gold curve = active level' : 'เส้นสีทอง = ระดับที่กำลังตัด'}</span>
         <span className="font-mono font-semibold text-amber-600 dark:text-amber-300">
-          {activeContour.length > 0 ? 'มีรอยตัด' : 'ไม่มีรอยตัด'}
+          {activeContour.length > 0
+            ? isEn
+              ? 'Curve visible'
+              : 'มีรอยตัด'
+            : isEn
+              ? 'Empty slice'
+              : 'ไม่มีรอยตัด'}
         </span>
       </div>
     </div>

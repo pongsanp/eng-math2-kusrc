@@ -1,4 +1,4 @@
-import type { Ch3PartialsState } from '../../../types';
+import type { AppLang, Ch3PartialsState } from '../../../types';
 import { MULTIVAR_FUNCS } from '../../../math/multivar';
 import { fmtNum, fmtTerm } from '../../../math/latex';
 import { KaTeX } from '../../KaTeX';
@@ -7,11 +7,13 @@ import { SliderControl } from '../../SliderControl';
 interface PartialsTangentPanelProps {
   state: Ch3PartialsState;
   onChange: (next: Ch3PartialsState) => void;
+  lang?: AppLang;
 }
 
 const FUNC_IDS = ['paraboloid_down', 'saddle', 'gaussian', 'waves'] as const;
 
-export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelProps) {
+export function PartialsTangentPanel({ state, onChange, lang = 'th' }: PartialsTangentPanelProps) {
+  const isEn = lang === 'en';
   const update = (patch: Partial<Ch3PartialsState>) => onChange({ ...state, ...patch });
   const spec = MULTIVAR_FUNCS[state.funcId];
   const z0 = spec.eval(state.x0, state.y0, 1);
@@ -28,7 +30,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
     <div className="space-y-4">
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-          เลือกพื้นผิว z = f(x, y)
+          {isEn ? 'Select Surface z = f(x, y)' : 'เลือกพื้นผิว z = f(x, y)'}
         </h3>
         <div className="grid grid-cols-2 gap-1.5">
           {FUNC_IDS.map((fid) => {
@@ -45,7 +47,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
                     : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <div className="truncate">{f.name.th}</div>
+                <div className="truncate">{isEn ? f.name.en : f.name.th}</div>
               </button>
             );
           })}
@@ -54,7 +56,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
 
       <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-          จุดสัมผัส (x₀, y₀) (Base Point)
+          {isEn ? 'Point of Tangency (x₀, y₀)' : 'จุดสัมผัส (x₀, y₀) (Base Point)'}
         </div>
         <SliderControl
           label="x₀"
@@ -81,7 +83,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
         <div className="grid grid-cols-2 gap-1.5">
           <div className="p-2 rounded-xl bg-rose-50/80 dark:bg-rose-950/35 border border-rose-200/70 dark:border-rose-900">
             <div className="text-[10px] font-semibold text-rose-700 dark:text-rose-300">
-              อนุพันธ์ย่อยเทียบ x (ตรึง y = y₀)
+              {isEn ? 'Partial w.r.t. x (y = y₀ fixed)' : 'อนุพันธ์ย่อยเทียบ x (ตรึง y = y₀)'}
             </div>
             <div className="font-bold text-rose-900 dark:text-rose-100 mt-0.5">
               <KaTeX math={`f_x = ${fmtNum(fx0)}`} />
@@ -89,7 +91,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
           </div>
           <div className="p-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/35 border border-emerald-200/70 dark:border-emerald-900">
             <div className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-              อนุพันธ์ย่อยเทียบ y (ตรึง x = x₀)
+              {isEn ? 'Partial w.r.t. y (x = x₀ fixed)' : 'อนุพันธ์ย่อยเทียบ y (ตรึง x = x₀)'}
             </div>
             <div className="font-bold text-emerald-900 dark:text-emerald-100 mt-0.5">
               <KaTeX math={`f_y = ${fmtNum(fy0)}`} />
@@ -99,7 +101,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
 
         <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/60 space-y-1">
           <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-            สมการระนาบสัมผัส (Tangent Plane)
+            {isEn ? 'Tangent Plane Equation' : 'สมการระนาบสัมผัส (Tangent Plane)'}
           </div>
           <div className="overflow-x-auto overflow-y-hidden leading-normal py-0.5 text-amber-950 dark:text-amber-100">
             <KaTeX math={tanLatex} />
@@ -110,7 +112,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
       {/* Differential dz vs Δz */}
       <div className="p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/25 space-y-2.5 text-xs">
         <div className="font-bold text-indigo-900 dark:text-indigo-200">
-          ผลต่างเชิงอนุพันธ์ (Differential: dz ≈ Δz)
+          {isEn ? 'Total Differential (dz ≈ Δz)' : 'ผลต่างเชิงอนุพันธ์ (Differential: dz ≈ Δz)'}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <SliderControl
@@ -132,13 +134,13 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           <div className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900/80 flex justify-between">
-            <span className="text-slate-500">ค่าประมาณ dz:</span>
+            <span className="text-slate-500">{isEn ? 'Approx. dz:' : 'ค่าประมาณ dz:'}</span>
             <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
               {fmtNum(dz, 3)}
             </span>
           </div>
           <div className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900/80 flex justify-between">
-            <span className="text-slate-500">ค่าจริง Δz:</span>
+            <span className="text-slate-500">{isEn ? 'Exact Δz:' : 'ค่าจริง Δz:'}</span>
             <span className="font-mono font-bold text-sky-700 dark:text-sky-300">
               {fmtNum(deltaZ, 3)}
             </span>
@@ -150,7 +152,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
       <div className="space-y-2 text-xs">
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            ระนาบตัด y = y₀ & ความชัน fx (สีแดง)
+            {isEn ? 'Slice Plane y = y₀ & Slope fₓ (Red)' : 'ระนาบตัด y = y₀ & ความชัน fx (สีแดง)'}
           </span>
           <input
             type="checkbox"
@@ -161,7 +163,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
         </label>
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            ระนาบตัด x = x₀ & ความชัน fy (สีเขียว)
+            {isEn ? 'Slice Plane x = x₀ & Slope fᵧ (Green)' : 'ระนาบตัด x = x₀ & ความชัน fy (สีเขียว)'}
           </span>
           <input
             type="checkbox"
@@ -172,7 +174,7 @@ export function PartialsTangentPanel({ state, onChange }: PartialsTangentPanelPr
         </label>
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
-            แสดงระนาบสัมผัส (Tangent Plane — สีทอง)
+            {isEn ? 'Show Tangent Plane (Gold)' : 'แสดงระนาบสัมผัส (Tangent Plane — สีทอง)'}
           </span>
           <input
             type="checkbox"

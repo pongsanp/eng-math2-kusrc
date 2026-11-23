@@ -111,11 +111,11 @@ const CH1_TABS: Array<{
   en: string;
   icon: typeof Box;
 }> = [
-  { id: 'coords_vec', th: '1. พิกัด & เวกเตอร์', en: 'Vectors', icon: ArrowUpRight },
-  { id: 'arithmetic', th: '2. บวก-ลบ-สเกลาร์', en: 'Arithmetic', icon: PlusSquare },
-  { id: 'dot_proj', th: '3. Dot & การฉาย', en: 'Dot / Proj', icon: Crosshair },
-  { id: 'cross_triple', th: '4. Cross & 3 เวกเตอร์', en: 'Cross / Vol', icon: Sparkles },
-  { id: 'lines3d', th: '5. เส้นตรง 3 มิติ', en: '3D Lines', icon: GitCommitHorizontal },
+  { id: 'coords_vec', th: '1. พิกัด & เวกเตอร์', en: '1. Vectors', icon: ArrowUpRight },
+  { id: 'arithmetic', th: '2. บวก-ลบ-สเกลาร์', en: '2. Arithmetic', icon: PlusSquare },
+  { id: 'dot_proj', th: '3. Dot & การฉาย', en: '3. Dot & Proj', icon: Crosshair },
+  { id: 'cross_triple', th: '4. Cross & 3 เวกเตอร์', en: '4. Cross & Vol', icon: Sparkles },
+  { id: 'lines3d', th: '5. เส้นตรง 3 มิติ', en: '5. 3D Lines', icon: GitCommitHorizontal },
 ];
 
 const CH2_TABS: Array<{
@@ -124,10 +124,10 @@ const CH2_TABS: Array<{
   en: string;
   icon: typeof Box;
 }> = [
-  { id: 'planes', th: '1. ระนาบ 3 มิติ', en: 'Planes', icon: Layers },
-  { id: 'cylinders', th: '2. ทรงกระบอก', en: 'Cylinders', icon: Box },
-  { id: 'quadrics', th: '3. พื้นผิวกำลังสอง', en: 'Quadrics', icon: Shapes },
-  { id: 'translation', th: '4. การย้ายแกน', en: 'Translation', icon: Move3D },
+  { id: 'planes', th: '1. ระนาบ 3 มิติ', en: '1. Planes', icon: Layers },
+  { id: 'cylinders', th: '2. ทรงกระบอก', en: '2. Cylinders', icon: Box },
+  { id: 'quadrics', th: '3. พื้นผิวกำลังสอง', en: '3. Quadrics', icon: Shapes },
+  { id: 'translation', th: '4. การย้ายแกน', en: '4. Translation', icon: Move3D },
 ];
 
 const CH3_TABS: Array<{
@@ -136,11 +136,11 @@ const CH3_TABS: Array<{
   en: string;
   icon: typeof Box;
 }> = [
-  { id: 'level_curves', th: '1. เส้นชั้นระดับ', en: 'Contours', icon: Activity },
-  { id: 'limits', th: '2. ลิมิตหลายตัวแปร', en: 'Limits', icon: Target },
-  { id: 'partials_tangent', th: '3. อนุพันธ์ย่อย & สัมผัส', en: 'Partials', icon: TrendingUp },
-  { id: 'gradient_dir', th: '4. เกรเดียนต์ ∇f', en: 'Gradient', icon: Navigation },
-  { id: 'extrema', th: '5. ค่าสุดขีด & อานม้า', en: 'Extrema', icon: Shapes },
+  { id: 'level_curves', th: '1. เส้นชั้นระดับ', en: '1. Contours', icon: Activity },
+  { id: 'limits', th: '2. ลิมิตหลายตัวแปร', en: '2. Limits', icon: Target },
+  { id: 'partials_tangent', th: '3. อนุพันธ์ย่อย & สัมผัส', en: '3. Partials', icon: TrendingUp },
+  { id: 'gradient_dir', th: '4. เกรเดียนต์ ∇f', en: '4. Gradient', icon: Navigation },
+  { id: 'extrema', th: '5. ค่าสุดขีด & อานม้า', en: '5. Extrema', icon: Shapes },
 ];
 
 export default function App() {
@@ -503,7 +503,7 @@ export default function App() {
         lines3d.inputMode === 'two_points'
           ? vecSub(lines3d.p2, lines3d.p0)
           : lines3d.dir;
-      const eqs = buildLineEquationsLatex(lines3d.p0, effDir);
+      const eqs = buildLineEquationsLatex(lines3d.p0, effDir, slideLang);
       return {
         titleTh: 'สมการเส้นตรงในปริภูมิ 3 มิติ',
         titleEn: 'Line in 3D Space',
@@ -622,6 +622,7 @@ export default function App() {
     cylinders,
     quadrics,
     translation,
+    slideLang,
   ]);
 
   const triggerCamera = useCallback((preset: CameraPreset) => {
@@ -648,6 +649,8 @@ export default function App() {
     );
   }
 
+  const isEn = slideLang === 'en';
+
   return (
     <div className="h-dvh w-screen overflow-hidden flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none">
       {/* Top Navbar */}
@@ -656,7 +659,15 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSidebarOpen((o) => !o)}
-            title={sidebarOpen ? 'ซ่อนแถบควบคุม' : 'แสดงแถบควบคุม'}
+            title={
+              sidebarOpen
+                ? isEn
+                  ? 'Hide control panel'
+                  : 'ซ่อนแถบควบคุม'
+                : isEn
+                  ? 'Show control panel'
+                  : 'แสดงแถบควบคุม'
+            }
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
           >
             {sidebarOpen ? (
@@ -672,15 +683,23 @@ export default function App() {
                 01417168
               </span>
               <h1 className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 truncate">
-                คณิตศาสตร์วิศวกรรม II (Engineering Mathematics II)
+                {isEn
+                  ? 'Engineering Mathematics II (3D Explorer)'
+                  : 'คณิตศาสตร์วิศวกรรม II (Engineering Mathematics II)'}
               </h1>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate hidden sm:block">
               {activeChapter === 'ch1'
-                ? 'บทที่ 1: เวกเตอร์และเส้นตรงในปริภูมิ 3 มิติ — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'
+                ? isEn
+                  ? 'Chapter 1: Vectors & Lines in 3D Space — Faculty of Science at Sriracha, Kasetsart University'
+                  : 'บทที่ 1: เวกเตอร์และเส้นตรงในปริภูมิ 3 มิติ — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'
                 : activeChapter === 'ch2'
-                  ? 'บทที่ 2: การเขียนกราฟและพื้นผิวในปริภูมิ 3 มิติ — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'
-                  : 'บทที่ 3: ลิมิตและอนุพันธ์ของฟังก์ชันหลายตัวแปร — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'}
+                  ? isEn
+                    ? 'Chapter 2: Graphs & Surfaces in 3D Space — Faculty of Science at Sriracha, Kasetsart University'
+                    : 'บทที่ 2: การเขียนกราฟและพื้นผิวในปริภูมิ 3 มิติ — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'
+                  : isEn
+                    ? 'Chapter 3: Limits & Derivatives of Multivariable Functions — Faculty of Science at Sriracha, Kasetsart University'
+                    : 'บทที่ 3: ลิมิตและอนุพันธ์ของฟังก์ชันหลายตัวแปร — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'}
             </p>
           </div>
         </div>
@@ -690,9 +709,9 @@ export default function App() {
           <div className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 p-1 rounded-2xl shrink-0">
             {(
               [
-                { id: 'ch1', label: 'บท 1: เวกเตอร์' },
-                { id: 'ch2', label: 'บท 2: พื้นผิว' },
-                { id: 'ch3', label: 'บท 3: อนุพันธ์หลายตัวแปร' },
+                { id: 'ch1', label: isEn ? 'Ch 1: Vectors' : 'บท 1: เวกเตอร์' },
+                { id: 'ch2', label: isEn ? 'Ch 2: Surfaces' : 'บท 2: พื้นผิว' },
+                { id: 'ch3', label: isEn ? 'Ch 3: Multivariable' : 'บท 3: อนุพันธ์หลายตัวแปร' },
               ] as const
             ).map((ch) => (
               <button
@@ -727,7 +746,7 @@ export default function App() {
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5 shrink-0" />
-                      <span>{tab.th}</span>
+                      <span>{isEn ? tab.en : tab.th}</span>
                     </button>
                   );
                 })
@@ -747,7 +766,7 @@ export default function App() {
                         }`}
                       >
                         <Icon className="w-3.5 h-3.5 shrink-0" />
-                        <span>{tab.th}</span>
+                        <span>{isEn ? tab.en : tab.th}</span>
                       </button>
                     );
                   })
@@ -766,7 +785,7 @@ export default function App() {
                         }`}
                       >
                         <Icon className="w-3.5 h-3.5 shrink-0" />
-                        <span>{tab.th}</span>
+                        <span>{isEn ? tab.en : tab.th}</span>
                       </button>
                     );
                   })}
@@ -775,34 +794,72 @@ export default function App() {
 
         {/* Global Display Actions */}
         <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] font-bold"
+            title={isEn ? 'Switch language (TH / EN)' : 'สลับภาษา (ไทย / อังกฤษ)'}
+          >
+            <button
+              type="button"
+              onClick={() => handleChangeSlideLang('th')}
+              className={`px-2 py-1 rounded-lg transition ${
+                slideLang === 'th'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              TH
+            </button>
+            <button
+              type="button"
+              onClick={() => handleChangeSlideLang('en')}
+              className={`px-2 py-1 rounded-lg transition ${
+                slideLang === 'en'
+                  ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              EN
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={() => setAppView('slides')}
             title={
-              slideLang === 'en'
+              isEn
                 ? 'Open Chapter 1 lecture slides (3D + Annotation + PDF Export)'
                 : 'เปิดสไลด์การสอนบทที่ 1 (พร้อม 3D, เขียนบน iPad และ Export PDF)'
             }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition"
           >
             <Presentation className="w-3.5 h-3.5" />
-            <span>{slideLang === 'en' ? 'Ch. 1 Slides' : 'สไลด์บท 1'}</span>
+            <span>{isEn ? 'Ch. 1 Slides' : 'สไลด์บท 1'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => toggleSetting('darkMode')}
-            title={settings.darkMode ? 'โหมดสว่าง (เหมาะกับโปรเจกเตอร์)' : 'โหมดมืด (Dark Mode)'}
+            title={
+              settings.darkMode
+                ? isEn
+                  ? 'Light Mode (Projector-friendly)'
+                  : 'โหมดสว่าง (เหมาะกับโปรเจกเตอร์)'
+                : isEn
+                  ? 'Dark Mode'
+                  : 'โหมดมืด (Dark Mode)'
+            }
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 transition"
           >
             {settings.darkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-600" />}
-            <span className="hidden md:inline">{settings.darkMode ? 'สว่าง' : 'มืด'}</span>
+            <span className="hidden md:inline">
+              {settings.darkMode ? (isEn ? 'Light' : 'สว่าง') : isEn ? 'Dark' : 'มืด'}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => toggleSetting('presentationMode')}
-            title="โหมดสอนหน้าห้อง (Presentation Mode)"
+            title={isEn ? 'Classroom Presentation Mode' : 'โหมดสอนหน้าห้อง (Presentation Mode)'}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition ${
               settings.presentationMode
                 ? 'border-sky-500 bg-sky-600 text-white'
@@ -814,7 +871,7 @@ export default function App() {
             ) : (
               <Maximize2 className="w-3.5 h-3.5" />
             )}
-            <span className="hidden md:inline">โหมดสอน</span>
+            <span className="hidden md:inline">{isEn ? 'Present' : 'โหมดสอน'}</span>
           </button>
         </div>
       </header>
@@ -827,52 +884,52 @@ export default function App() {
             {activeChapter === 'ch1' ? (
               <>
                 {ch1Tab === 'coords_vec' && (
-                  <CoordsVecPanel state={coordsVec} onChange={setCoordsVec} />
+                  <CoordsVecPanel state={coordsVec} onChange={setCoordsVec} lang={slideLang} />
                 )}
                 {ch1Tab === 'arithmetic' && (
-                  <ArithmeticPanel state={arithmetic} onChange={setArithmetic} />
+                  <ArithmeticPanel state={arithmetic} onChange={setArithmetic} lang={slideLang} />
                 )}
                 {ch1Tab === 'dot_proj' && (
-                  <DotProjPanel state={dotProj} onChange={setDotProj} />
+                  <DotProjPanel state={dotProj} onChange={setDotProj} lang={slideLang} />
                 )}
                 {ch1Tab === 'cross_triple' && (
-                  <CrossTriplePanel state={crossTriple} onChange={setCrossTriple} />
+                  <CrossTriplePanel state={crossTriple} onChange={setCrossTriple} lang={slideLang} />
                 )}
                 {ch1Tab === 'lines3d' && (
-                  <Lines3DPanel state={lines3d} onChange={setLines3d} />
+                  <Lines3DPanel state={lines3d} onChange={setLines3d} lang={slideLang} />
                 )}
               </>
             ) : activeChapter === 'ch2' ? (
               <>
                 {activeTab === 'planes' && (
-                  <PlanesPanel state={planes} onChange={setPlanes} />
+                  <PlanesPanel state={planes} onChange={setPlanes} lang={slideLang} />
                 )}
                 {activeTab === 'cylinders' && (
-                  <CylindersPanel state={cylinders} onChange={setCylinders} />
+                  <CylindersPanel state={cylinders} onChange={setCylinders} lang={slideLang} />
                 )}
                 {activeTab === 'quadrics' && (
-                  <QuadricsPanel state={quadrics} onChange={setQuadrics} />
+                  <QuadricsPanel state={quadrics} onChange={setQuadrics} lang={slideLang} />
                 )}
                 {activeTab === 'translation' && (
-                  <TranslationPanel state={translation} onChange={setTranslation} />
+                  <TranslationPanel state={translation} onChange={setTranslation} lang={slideLang} />
                 )}
               </>
             ) : (
               <>
                 {ch3Tab === 'level_curves' && (
-                  <LevelCurvesPanel state={ch3LevelCurves} onChange={setCh3LevelCurves} />
+                  <LevelCurvesPanel state={ch3LevelCurves} onChange={setCh3LevelCurves} lang={slideLang} />
                 )}
                 {ch3Tab === 'limits' && (
-                  <LimitsPanel state={ch3Limits} onChange={setCh3Limits} />
+                  <LimitsPanel state={ch3Limits} onChange={setCh3Limits} lang={slideLang} />
                 )}
                 {ch3Tab === 'partials_tangent' && (
-                  <PartialsTangentPanel state={ch3Partials} onChange={setCh3Partials} />
+                  <PartialsTangentPanel state={ch3Partials} onChange={setCh3Partials} lang={slideLang} />
                 )}
                 {ch3Tab === 'gradient_dir' && (
-                  <GradientDirPanel state={ch3Gradient} onChange={setCh3Gradient} />
+                  <GradientDirPanel state={ch3Gradient} onChange={setCh3Gradient} lang={slideLang} />
                 )}
                 {ch3Tab === 'extrema' && (
-                  <ExtremaPanel state={ch3Extrema} onChange={setCh3Extrema} />
+                  <ExtremaPanel state={ch3Extrema} onChange={setCh3Extrema} lang={slideLang} />
                 )}
               </>
             )}
@@ -914,8 +971,14 @@ export default function App() {
           >
             <div className="pointer-events-auto inline-block max-w-full rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg px-4 py-2.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                <span className="text-sky-700 dark:text-sky-300">{bannerContent.titleTh}</span>
-                <span className="hidden sm:inline opacity-75">• {bannerContent.titleEn}</span>
+                {isEn ? (
+                  <span className="text-sky-700 dark:text-sky-300">{bannerContent.titleEn}</span>
+                ) : (
+                  <>
+                    <span className="text-sky-700 dark:text-sky-300">{bannerContent.titleTh}</span>
+                    <span className="hidden sm:inline opacity-75">• {bannerContent.titleEn}</span>
+                  </>
+                )}
               </div>
               <div
                 className={`mt-1 overflow-x-auto overflow-y-hidden leading-normal text-slate-900 dark:text-white ${
@@ -929,7 +992,7 @@ export default function App() {
             {sceneWarning && (
               <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-950/90 px-3 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 shadow-md">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span>{sceneWarning.th}</span>
+                <span>{isEn ? sceneWarning.en : sceneWarning.th}</span>
               </div>
             )}
           </div>
@@ -954,6 +1017,7 @@ export default function App() {
                 slicePlane={quadrics.slicePlane}
                 sliceK={quadrics.sliceK}
                 trace={traceResult}
+                lang={slideLang}
               />
             </div>
           )}
@@ -961,7 +1025,7 @@ export default function App() {
           {/* 2D Contour Map Card (Bottom-Right in Chapter 3 Tab 1) */}
           {activeChapter === 'ch3' && ch3Tab === 'level_curves' && (
             <div className="absolute bottom-20 md:bottom-3 right-3 z-10">
-              <Contour2DCard state={ch3LevelCurves} />
+              <Contour2DCard state={ch3LevelCurves} lang={slideLang} />
             </div>
           )}
 
@@ -972,9 +1036,9 @@ export default function App() {
               {(
                 [
                   { id: 'isometric', label: '3D Iso' },
-                  { id: 'top', label: 'บน (xy)' },
-                  { id: 'front', label: 'หน้า (yz)' },
-                  { id: 'side', label: 'ข้าง (xz)' },
+                  { id: 'top', label: isEn ? 'Top (xy)' : 'บน (xy)' },
+                  { id: 'front', label: isEn ? 'Front (yz)' : 'หน้า (yz)' },
+                  { id: 'side', label: isEn ? 'Side (xz)' : 'ข้าง (xz)' },
                 ] as const
               ).map((cam) => (
                 <button
@@ -992,7 +1056,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => toggleSetting('wireframe')}
-                title="โหมดโครงลวด (Wireframe)"
+                title={isEn ? 'Wireframe Mode' : 'โหมดโครงลวด (Wireframe)'}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition ${
                   settings.wireframe
                     ? 'bg-sky-600 text-white'
@@ -1000,13 +1064,13 @@ export default function App() {
                 }`}
               >
                 <Grid3X3 className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">โครงลวด</span>
+                <span className="hidden md:inline">{isEn ? 'Wireframe' : 'โครงลวด'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => toggleSetting('transparent')}
-                title="โปร่งแสง (Transparent)"
+                title={isEn ? 'Transparent Mode' : 'โปร่งแสง (Transparent)'}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition ${
                   settings.transparent
                     ? 'bg-sky-600 text-white'
@@ -1014,26 +1078,26 @@ export default function App() {
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">โปร่งแสง</span>
+                <span className="hidden md:inline">{isEn ? 'Transparent' : 'โปร่งแสง'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => toggleSetting('showGrid')}
-                title="แสดงตารางระนาบ xy (Grid)"
+                title={isEn ? 'Toggle xy-plane Grid' : 'แสดงตารางระนาบ xy (Grid)'}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition ${
                   settings.showGrid
                     ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white'
                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
-                <span>ตาราง xy</span>
+                <span>{isEn ? 'xy Grid' : 'ตาราง xy'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => toggleSetting('autoRotate')}
-                title="หมุนอัตโนมัติ (Auto-rotate)"
+                title={isEn ? 'Auto-rotate Camera' : 'หมุนอัตโนมัติ (Auto-rotate)'}
                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition ${
                   settings.autoRotate
                     ? 'bg-emerald-600 text-white'
@@ -1041,7 +1105,7 @@ export default function App() {
                 }`}
               >
                 <RotateCw className={`w-3.5 h-3.5 ${settings.autoRotate ? 'animate-spin' : ''}`} />
-                <span className="hidden md:inline">หมุน</span>
+                <span className="hidden md:inline">{isEn ? 'Rotate' : 'หมุน'}</span>
               </button>
             </div>
           </div>
