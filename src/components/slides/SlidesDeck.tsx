@@ -108,6 +108,7 @@ type TextScale = 'normal' | 'large' | 'xlarge';
 
 const DECK_ID = 'ch1';
 const LEGACY_INK_STORAGE_KEY = 'eng_math_2_ch1_ink_v1';
+const COMPACT_BARS_STORAGE_KEY = 'eng_math_2_slides_compact_bars';
 
 function getStorageDeckId(lang: SlideLang): string {
   return lang === 'en' ? `${DECK_ID}_en` : DECK_ID;
@@ -377,7 +378,15 @@ function SlidesDeckInner({
   const zoomRef = useRef(1);
   const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const stageScaleRef = useRef(1);
-  const [compactBars, setCompactBars] = useState(false);
+  const [compactBars, setCompactBars] = useState<boolean>(() => {
+    try {
+      const saved = window.localStorage.getItem(COMPACT_BARS_STORAGE_KEY);
+      if (saved === '0' || saved === 'false') return false;
+      return true;
+    } catch {
+      return true;
+    }
+  });
 
   const stageWrapperRef = useRef<HTMLElement | null>(null);
   const slideBodyRef = useRef<HTMLDivElement | null>(null);
@@ -581,6 +590,14 @@ function SlidesDeckInner({
       // ignore storage errors
     }
   }, [toolbarPos]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COMPACT_BARS_STORAGE_KEY, compactBars ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+  }, [compactBars]);
 
   useEffect(() => {
     try {
