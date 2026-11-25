@@ -37,6 +37,7 @@ import { fmtNum } from '../math/latex';
 import {
   addAxesSet,
   addPolyline,
+  addQuadPatch,
   addThickCurve,
   disposeObject3D,
   makeTextSprite,
@@ -341,6 +342,52 @@ export function Scene3D({
     } else if (activeTab === 'planes') {
       const planeRes = buildPlaneGeometry(planes, BOX_LIMIT);
       if (planeRes.warning) nextWarning = planeRes.warning;
+
+      if (planes.showRefPlane && planeRes.refPlaneType) {
+        const L = BOX_LIMIT;
+        const corners: [Vec3, Vec3, Vec3, Vec3] =
+          planeRes.refPlaneType === 'x0'
+            ? [
+                [0, -L, -L],
+                [0, L, -L],
+                [0, L, L],
+                [0, -L, L],
+              ]
+            : planeRes.refPlaneType === 'y0'
+              ? [
+                  [-L, 0, -L],
+                  [L, 0, -L],
+                  [L, 0, L],
+                  [-L, 0, L],
+                ]
+              : [
+                  [-L, -L, 0],
+                  [L, -L, 0],
+                  [L, L, 0],
+                  [-L, L, 0],
+                ];
+        addQuadPatch(contentGroup, corners, '#f97316', 0.11, 0.72, true);
+        const refLbl =
+          planeRes.refPlaneType === 'x0'
+            ? 'x = 0 (yz)'
+            : planeRes.refPlaneType === 'y0'
+              ? 'y = 0 (xz)'
+              : 'z = 0 (xy)';
+        const lblPos: Vec3 =
+          planeRes.refPlaneType === 'x0'
+            ? [0, L - 0.8, L - 0.5]
+            : planeRes.refPlaneType === 'y0'
+              ? [L - 0.8, 0, L - 0.5]
+              : [L - 0.8, L - 0.8, 0];
+        const sp = makeTextSprite(
+          refLbl,
+          '#f97316',
+          settings.darkMode ? 'halo-dark' : 'halo',
+          0.48,
+        );
+        sp.position.copy(mathVecToThree(lblPos));
+        contentGroup.add(sp);
+      }
 
       if (planeRes.geometry) {
         const mat = new THREE.MeshStandardMaterial({

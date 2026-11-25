@@ -105,8 +105,8 @@ export const CH1_SLIDES: SlideDef[] = [
     badgeEn: 'Course 01417168',
     titleTh: 'บทที่ 1: เวกเตอร์ในปริภูมิสามมิติ',
     titleEn: 'Chapter 1: Vectors and the Geometry of Space',
-    subtitle: 'คณะวิทยาศาสตร์ ศรีราชา มหาวิทยาลัยเกษตรศาสตร์ • ประกอบสื่อ 3D Interactive',
-    subtitleEn: 'Faculty of Science at Sriracha, Kasetsart University • Interactive 3D Lecture Slides',
+    subtitle: 'ผศ.ดร.พงษ์สัญ ประกฤตศรี • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์ วิทยาเขตศรีราชา',
+    subtitleEn: 'Pongsan Prakitsri, Faculty of Science at Sriracha, Kasetsart University Sriracha Campus',
     cards: [
       {
         heading: 'แผนการเรียนบทที่ 1 (2 คาบเรียน • 38 หน้า)',
@@ -121,6 +121,7 @@ export const CH1_SLIDES: SlideDef[] = [
           'หน้าเนื้อหาที่มีกล่อง 3 มิติ: ใช้นิ้วหรือเมาส์หมุนดูทิศทางและปรับค่าได้ทันทีกลางหน้าสไลด์',
           'หน้าโจทย์ตัวอย่าง & แนวข้อสอบ: เว้นกระดานจุดสำหรับเขียนสดด้วย Apple Pencil (รองรับกันฝ่ามือ + เลเซอร์ 2 แบบ) และ Export PDF รวมลายมือแจกนิสิตได้ทันที',
         ],
+        note: 'สื่อการสอนแบบ Interactive 3D • สัญญาอนุญาต CC BY-NC 4.0 (เพื่อการศึกษา ห้ามใช้เชิงพาณิชย์)',
       },
     ],
     cardsEn: [
@@ -137,6 +138,7 @@ export const CH1_SLIDES: SlideDef[] = [
           'Concept & example slides with 3D viewports: drag with your finger or mouse to orbit and adjust parameters directly on the slide',
           'Example & drill slides: dot-grid workspace for live Apple Pencil annotation (with palm rejection + 2 laser modes) and instant PDF export with notes',
         ],
+        note: 'Interactive 3D Lecture Slides • Licensed under CC BY-NC 4.0 (Attribution-NonCommercial)',
       },
     ],
   },
@@ -1811,6 +1813,7 @@ export const CH1_VISIBLE_SLIDES: SlideDef[] = RAW_VISIBLE_SLIDES.map((s) => {
           'หน้าเนื้อหาและตัวอย่างที่มีกล่อง 3 มิติ: ใช้นิ้วหรือเมาส์หมุนดูทิศทางได้ทันทีกลางหน้าสไลด์',
           'หน้าโจทย์ตัวอย่าง: เว้นกระดานจุดสำหรับเขียนสดด้วย Apple Pencil (รองรับกันฝ่ามือ + เลเซอร์ 2 แบบ) และ Export PDF รวมลายมือแจกนิสิตได้ทันที',
         ],
+        note: 'สื่อการสอนแบบ Interactive 3D • สัญญาอนุญาต CC BY-NC 4.0 (เพื่อการศึกษา ห้ามใช้เชิงพาณิชย์)',
       },
     ],
     cardsEn: [
@@ -1827,6 +1830,7 @@ export const CH1_VISIBLE_SLIDES: SlideDef[] = RAW_VISIBLE_SLIDES.map((s) => {
           'Concept & example slides with 3D viewports: drag with your finger or mouse to orbit directly on the slide',
           'Example slides: dot-grid workspace for live Apple Pencil annotation (with palm rejection + 2 laser modes) and instant PDF export with notes',
         ],
+        note: 'Interactive 3D Lecture Slides • Licensed under CC BY-NC 4.0 (Attribution-NonCommercial)',
       },
     ],
   };

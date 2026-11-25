@@ -7,7 +7,7 @@ import type {
   DotProjState,
   Lines3DState,
 } from '../types';
-import { BOX_LIMIT, clipSegmentToBox, type Vec3 } from '../math/coords';
+import { BOX_LIMIT, clipSegmentToBox, mathVecToThree, type Vec3 } from '../math/coords';
 import { fmtNum } from '../math/latex';
 import {
   fmtPoint,
@@ -28,6 +28,7 @@ import {
   addParallelepiped,
   addParallelogram,
   addPolyline,
+  addQuadPatch,
   addRightAngleMarker,
   addSolidVectorArrow,
   addThickCurve,
@@ -54,6 +55,10 @@ export function renderChapter1Scene(
       subMode,
       plotStep,
       showPlaneProjections,
+      showPlaneXY,
+      showPlaneXZ,
+      showPlaneYZ,
+      highlightOctant,
       p1,
       p2,
       showCoordBox,
@@ -62,7 +67,73 @@ export function renderChapter1Scene(
     } = coordsVec;
 
     if (subMode === 'single_point') {
+      const PL = BOX_LIMIT - 0.5;
+      if (showPlaneXY) {
+        addQuadPatch(
+          group,
+          [
+            [-PL, -PL, 0],
+            [PL, -PL, 0],
+            [PL, PL, 0],
+            [-PL, PL, 0],
+          ],
+          '#22c55e',
+          0.16,
+          0.55,
+        );
+      }
+      if (showPlaneXZ) {
+        addQuadPatch(
+          group,
+          [
+            [-PL, 0, -PL],
+            [PL, 0, -PL],
+            [PL, 0, PL],
+            [-PL, 0, PL],
+          ],
+          '#0ea5e9',
+          0.16,
+          0.55,
+        );
+      }
+      if (showPlaneYZ) {
+        addQuadPatch(
+          group,
+          [
+            [0, -PL, -PL],
+            [0, PL, -PL],
+            [0, PL, PL],
+            [0, -PL, PL],
+          ],
+          '#f97316',
+          0.16,
+          0.55,
+        );
+      }
+
       const [x, y, z] = p2;
+      if (
+        highlightOctant &&
+        Math.abs(x) > 1e-4 &&
+        Math.abs(y) > 1e-4 &&
+        Math.abs(z) > 1e-4
+      ) {
+        const sx = x > 0 ? PL : -PL;
+        const sy = y > 0 ? PL : -PL;
+        const sz = z > 0 ? PL : -PL;
+        const octMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.abs(sy), Math.abs(sz), Math.abs(sx)),
+          new THREE.MeshBasicMaterial({
+            color: '#6366f1',
+            transparent: true,
+            opacity: 0.08,
+            depthWrite: false,
+          }),
+        );
+        octMesh.position.copy(mathVecToThree([sx / 2, sy / 2, sz / 2]));
+        group.add(octMesh);
+      }
+
       const pX: Vec3 = [x, 0, 0];
       const pXY: Vec3 = [x, y, 0];
 

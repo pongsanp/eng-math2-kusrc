@@ -28,6 +28,7 @@ export interface PlaneBuildResult {
     z: number | null;
   };
   coordTraces: Array<{ label: string; color: string; segments: Array<[Vec3, Vec3]> }>;
+  refPlaneType?: 'x0' | 'y0' | 'z0' | null;
   warning?: { th: string; en: string };
 }
 
@@ -72,6 +73,7 @@ export function buildPlaneGeometry(s: PlanesState, limit = BOX_LIMIT): PlaneBuil
       normalDir: null,
       intercepts: { x: null, y: null, z: null },
       coordTraces: [],
+      refPlaneType: null,
       warning: {
         th: 'เมื่อ A = B = C = 0 สมการไม่ใช่ระนาบใน 3 มิติ',
         en: 'When A = B = C = 0, the equation does not define a plane in 3D',
@@ -84,6 +86,14 @@ export function buildPlaneGeometry(s: PlanesState, limit = BOX_LIMIT): PlaneBuil
     y: Math.abs(b) > 1e-6 ? d / b : null,
     z: Math.abs(c) > 1e-6 ? d / c : null,
   };
+
+  let refPlaneType: 'x0' | 'y0' | 'z0' | null = null;
+  const zeroAxes = [Math.abs(a) < 1e-6, Math.abs(b) < 1e-6, Math.abs(c) < 1e-6].filter(Boolean).length;
+  if (zeroAxes === 2) {
+    if (Math.abs(a) > 1e-6) refPlaneType = 'x0';
+    else if (Math.abs(b) > 1e-6) refPlaneType = 'y0';
+    else refPlaneType = 'z0';
+  }
 
   // Intersect Ax + By + Cz = D with the 12 edges of [-limit, limit]^3
   const pts: Vec3[] = [];
@@ -213,6 +223,7 @@ export function buildPlaneGeometry(s: PlanesState, limit = BOX_LIMIT): PlaneBuil
     normalDir: nUnit,
     intercepts,
     coordTraces,
+    refPlaneType,
   };
 }
 
@@ -739,7 +750,7 @@ export function buildTranslationGeometry(s: TranslationState): {
       return buildCylinderGeometry(
         {
           type: 'elliptic',
-          missingAxis: 'z',
+          missingAxis: s.symmetryAxis,
           hyperbolicSign: 1,
           a: s.a,
           b: s.b,
@@ -748,6 +759,8 @@ export function buildTranslationGeometry(s: TranslationState): {
           isAnimatingExtrusion: false,
           showGeneratingCurve: false,
           showRulings: false,
+          quizMode: false,
+          quizRevealed: true,
         },
         localLimit,
         off,
@@ -757,7 +770,7 @@ export function buildTranslationGeometry(s: TranslationState): {
     return buildQuadricGeometry(
       {
         mode: s.surfaceType,
-        symmetryAxis: 'z',
+        symmetryAxis: s.symmetryAxis,
         paraboloidSign: s.paraboloidSign,
         a: s.a,
         b: s.b,

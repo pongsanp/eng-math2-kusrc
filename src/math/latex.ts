@@ -88,6 +88,43 @@ export function buildCylinderEquationLatex(s: CylindersState): string {
   return `${v} = ${amp}\\sin(${freq}${u})`;
 }
 
+export function buildCylinderGeneralLatex(s: CylindersState): string {
+  const { u, v } = axisVarNames(s.missingAxis);
+  const a2 = s.a * s.a;
+  const b2 = s.b * s.b;
+
+  if (s.type === 'sine') {
+    const amp = Math.abs(s.a - 1) < 1e-9 ? '' : Math.abs(s.a + 1) < 1e-9 ? '-' : fmtNum(s.a);
+    const freq = Math.abs(s.b - 1) < 1e-9 ? '' : fmtNum(s.b);
+    return `${v} - ${amp}\\sin(${freq}${u}) = 0`;
+  }
+
+  if (s.type === 'parabolic') {
+    const m = findCleanScale([Math.max(1e-3, Math.abs(1 / (s.a || 1)))]);
+    const cu = m * s.a;
+    const cv = -m;
+    const cc = m * s.c;
+    const lhs = buildLinearExpr([
+      [cu, `${u}^2`],
+      [cv, v],
+      [cc, ''],
+    ]);
+    return `${lhs} = 0`;
+  }
+
+  const m = findCleanScale([a2, b2]);
+  const su = s.type === 'hyperbolic' && s.hyperbolicSign === -1 ? -1 : 1;
+  const sv = s.type === 'hyperbolic' && s.hyperbolicSign === 1 ? -1 : 1;
+  const cu = su * (m / a2);
+  const cv = sv * (m / b2);
+  const lhs = buildLinearExpr([
+    [cu, `${u}^2`],
+    [cv, `${v}^2`],
+    [-m, ''],
+  ]);
+  return `${lhs} = 0`;
+}
+
 export function buildQuadricEquationLatex(s: QuadricsState): string {
   const { u, v, w } = axisVarNames(s.symmetryAxis);
   const a2 = s.a * s.a;
@@ -112,6 +149,62 @@ export function buildQuadricEquationLatex(s: QuadricsState): string {
   }
 }
 
+export function buildQuadricGeneralLatex(s: QuadricsState): string {
+  const { u, v, w } = axisVarNames(s.symmetryAxis);
+  const a2 = s.a * s.a;
+  const b2 = s.b * s.b;
+  const c2 = s.c * s.c;
+
+  const mapByAxis = (valU: number, valV: number, valW: number): Record<AxisName, number> =>
+    ({ [u]: valU, [v]: valV, [w]: valW }) as Record<AxisName, number>;
+
+  if (s.mode === 'elliptic_paraboloid' || s.mode === 'hyperbolic_paraboloid') {
+    const signV = s.mode === 'hyperbolic_paraboloid' ? -1 : 1;
+    const m = findCleanScale([a2, b2]);
+    const coeffMap = mapByAxis(m / a2, (signV * m) / b2, 0);
+    const linMap = mapByAxis(0, 0, -s.paraboloidSign * m);
+    const lhs = buildLinearExpr([
+      [coeffMap.x, 'x^2'],
+      [coeffMap.y, 'y^2'],
+      [coeffMap.z, 'z^2'],
+      [linMap.x, 'x'],
+      [linMap.y, 'y'],
+      [linMap.z, 'z'],
+    ]);
+    return `${lhs} = 0`;
+  }
+
+  const m = findCleanScale([a2, b2, c2]);
+  let coeffMap: Record<AxisName, number>;
+  let constTerm = 0;
+
+  if (s.mode === 'ellipsoid') {
+    coeffMap = { x: m / a2, y: m / b2, z: m / c2 };
+    constTerm = -m;
+  } else if (s.mode === 'cone') {
+    coeffMap = mapByAxis(m / a2, m / b2, -m / c2);
+    constTerm = 0;
+  } else if (s.mode === 'hyperboloid_1') {
+    coeffMap = mapByAxis(m / a2, m / b2, -m / c2);
+    constTerm = -m;
+  } else if (s.mode === 'hyperboloid_2') {
+    coeffMap = mapByAxis(-m / a2, -m / b2, m / c2);
+    constTerm = -m;
+  } else {
+    // morph: u^2/a^2 + v^2/b^2 - w^2/c^2 - morphD = 0
+    coeffMap = mapByAxis(m / a2, m / b2, -m / c2);
+    constTerm = -m * s.morphD;
+  }
+
+  const lhs = buildLinearExpr([
+    [coeffMap.x, 'x^2'],
+    [coeffMap.y, 'y^2'],
+    [coeffMap.z, 'z^2'],
+    [constTerm, ''],
+  ]);
+  return `${lhs} = 0`;
+}
+
 function gcd(a: number, b: number): number {
   let x = Math.abs(Math.round(a));
   let y = Math.abs(Math.round(b));
@@ -132,17 +225,16 @@ function lcm(a: number, b: number): number {
  * when possible (within cap), keeping expanded equations textbook-friendly.
  */
 function findCleanScale(denoms: number[]): number {
-  // Each denom is a^2 where a is typically a multiple of 0.5, so 4 * denom is an integer.
-  const scaledInts = denoms.map((d) => Math.round(d * 4));
-  const isExactQuarter = denoms.every((d, i) => Math.abs(d * 4 - scaledInts[i]) < 1e-6);
-  if (!isExactQuarter) return 1;
+  const factor = 144;
+  const scaledInts = denoms.map((d) => Math.round(d * factor));
+  const isClean = denoms.every((d, i) => d > 1e-6 && Math.abs(d * factor - scaledInts[i]) < 1e-3);
+  if (!isClean) return 1;
 
-  // For fractions 4 / scaledInts[i], reduce each fraction first
-  const reducedDenoms = scaledInts.map((n) => n / gcd(4, n));
+  const reducedDenoms = scaledInts.map((n) => n / gcd(factor, n));
   let m = 1;
   for (const rd of reducedDenoms) {
     m = lcm(m, rd);
-    if (m > 400) return 1;
+    if (m > 2500) return 1;
   }
   return m;
 }
@@ -155,108 +247,120 @@ export interface TranslationEquationsLatex {
 }
 
 export function buildTranslationEquationsLatex(s: TranslationState): TranslationEquationsLatex {
-  const { x0, y0, z0, a, b, c, surfaceType } = s;
+  const { x0, y0, z0, a, b, c, surfaceType, symmetryAxis } = s;
   const a2 = a * a;
   const b2 = b * b;
   const c2 = c * c;
 
+  const { u, v, w } = axisVarNames(symmetryAxis);
+  const shiftMap: Record<AxisName, number> = { x: x0, y: y0, z: z0 };
+
   let standard = '';
   let shifted = '';
-  let denoms: number[] = [];
-  let cx = 0;
-  let cy = 0;
-  let cz = 0;
-  let lx = 0;
-  let ly = 0;
-  let lz = 0;
-  let rhs = 0;
+  const quadCoeff: Record<AxisName, number> = { x: 0, y: 0, z: 0 };
+  const linCoeff: Record<AxisName, number> = { x: 0, y: 0, z: 0 };
+  let constTerm = 0;
 
   if (surfaceType === 'ellipsoid') {
-    denoms = [a2, b2, c2];
-    const m = findCleanScale(denoms);
-    cx = m / a2;
-    cy = m / b2;
-    cz = m / c2;
-    lx = -2 * cx * x0;
-    ly = -2 * cy * y0;
-    lz = -2 * cz * z0;
-    rhs = m - cx * x0 * x0 - cy * y0 * y0 - cz * z0 * z0;
+    const m = findCleanScale([a2, b2, c2]);
+    quadCoeff.x = m / a2;
+    quadCoeff.y = m / b2;
+    quadCoeff.z = m / c2;
+    linCoeff.x = -2 * quadCoeff.x * x0;
+    linCoeff.y = -2 * quadCoeff.y * y0;
+    linCoeff.z = -2 * quadCoeff.z * z0;
+    constTerm = quadCoeff.x * x0 * x0 + quadCoeff.y * y0 * y0 + quadCoeff.z * z0 * z0 - m;
 
     standard = `${fmtFracSq('x', a2, x0)} + ${fmtFracSq('y', b2, y0)} + ${fmtFracSq('z', c2, z0)} = 1`;
     shifted = `${fmtFracSq("x'", a2)} + ${fmtFracSq("y'", b2)} + ${fmtFracSq("z'", c2)} = 1`;
   } else if (surfaceType === 'hyperboloid_1') {
-    denoms = [a2, b2, c2];
-    const m = findCleanScale(denoms);
-    cx = m / a2;
-    cy = m / b2;
-    cz = -m / c2;
-    lx = -2 * cx * x0;
-    ly = -2 * cy * y0;
-    lz = -2 * cz * z0;
-    rhs = m - cx * x0 * x0 - cy * y0 * y0 - cz * z0 * z0;
+    const m = findCleanScale([a2, b2, c2]);
+    quadCoeff[u] = m / a2;
+    quadCoeff[v] = m / b2;
+    quadCoeff[w] = -m / c2;
+    linCoeff.x = -2 * quadCoeff.x * x0;
+    linCoeff.y = -2 * quadCoeff.y * y0;
+    linCoeff.z = -2 * quadCoeff.z * z0;
+    constTerm = quadCoeff.x * x0 * x0 + quadCoeff.y * y0 * y0 + quadCoeff.z * z0 * z0 - m;
 
-    standard = `${fmtFracSq('x', a2, x0)} + ${fmtFracSq('y', b2, y0)} - ${fmtFracSq('z', c2, z0)} = 1`;
-    shifted = `${fmtFracSq("x'", a2)} + ${fmtFracSq("y'", b2)} - ${fmtFracSq("z'", c2)} = 1`;
+    standard = `${fmtFracSq(u, a2, shiftMap[u])} + ${fmtFracSq(v, b2, shiftMap[v])} - ${fmtFracSq(w, c2, shiftMap[w])} = 1`;
+    shifted = `${fmtFracSq(`${u}'`, a2)} + ${fmtFracSq(`${v}'`, b2)} - ${fmtFracSq(`${w}'`, c2)} = 1`;
+  } else if (surfaceType === 'hyperboloid_2') {
+    const m = findCleanScale([a2, b2, c2]);
+    quadCoeff[u] = -m / a2;
+    quadCoeff[v] = -m / b2;
+    quadCoeff[w] = m / c2;
+    linCoeff.x = -2 * quadCoeff.x * x0;
+    linCoeff.y = -2 * quadCoeff.y * y0;
+    linCoeff.z = -2 * quadCoeff.z * z0;
+    constTerm = quadCoeff.x * x0 * x0 + quadCoeff.y * y0 * y0 + quadCoeff.z * z0 * z0 - m;
+
+    standard = `${fmtFracSq(w, c2, shiftMap[w])} - ${fmtFracSq(u, a2, shiftMap[u])} - ${fmtFracSq(v, b2, shiftMap[v])} = 1`;
+    shifted = `${fmtFracSq(`${w}'`, c2)} - ${fmtFracSq(`${u}'`, a2)} - ${fmtFracSq(`${v}'`, b2)} = 1`;
   } else if (surfaceType === 'cone') {
-    denoms = [a2, b2, c2];
-    const m = findCleanScale(denoms);
-    cx = m / a2;
-    cy = m / b2;
-    cz = -m / c2;
-    lx = -2 * cx * x0;
-    ly = -2 * cy * y0;
-    lz = -2 * cz * z0;
-    rhs = -(cx * x0 * x0 + cy * y0 * y0 + cz * z0 * z0);
+    const m = findCleanScale([a2, b2, c2]);
+    quadCoeff[u] = m / a2;
+    quadCoeff[v] = m / b2;
+    quadCoeff[w] = -m / c2;
+    linCoeff.x = -2 * quadCoeff.x * x0;
+    linCoeff.y = -2 * quadCoeff.y * y0;
+    linCoeff.z = -2 * quadCoeff.z * z0;
+    constTerm = quadCoeff.x * x0 * x0 + quadCoeff.y * y0 * y0 + quadCoeff.z * z0 * z0;
 
-    standard = `${fmtFracSq('x', a2, x0)} + ${fmtFracSq('y', b2, y0)} - ${fmtFracSq('z', c2, z0)} = 0`;
-    shifted = `${fmtFracSq("x'", a2)} + ${fmtFracSq("y'", b2)} - ${fmtFracSq("z'", c2)} = 0`;
+    standard = `${fmtFracSq(u, a2, shiftMap[u])} + ${fmtFracSq(v, b2, shiftMap[v])} = ${fmtFracSq(w, c2, shiftMap[w])}`;
+    shifted = `${fmtFracSq(`${u}'`, a2)} + ${fmtFracSq(`${v}'`, b2)} = ${fmtFracSq(`${w}'`, c2)}`;
   } else if (surfaceType === 'elliptic_cylinder') {
-    denoms = [a2, b2];
-    const m = findCleanScale(denoms);
-    cx = m / a2;
-    cy = m / b2;
-    cz = 0;
-    lx = -2 * cx * x0;
-    ly = -2 * cy * y0;
-    lz = 0;
-    rhs = m - cx * x0 * x0 - cy * y0 * y0;
+    const m = findCleanScale([a2, b2]);
+    quadCoeff[u] = m / a2;
+    quadCoeff[v] = m / b2;
+    linCoeff[u] = -2 * quadCoeff[u] * shiftMap[u];
+    linCoeff[v] = -2 * quadCoeff[v] * shiftMap[v];
+    constTerm =
+      quadCoeff[u] * shiftMap[u] * shiftMap[u] +
+      quadCoeff[v] * shiftMap[v] * shiftMap[v] -
+      m;
 
-    standard = `${fmtFracSq('x', a2, x0)} + ${fmtFracSq('y', b2, y0)} = 1`;
-    shifted = `${fmtFracSq("x'", a2)} + ${fmtFracSq("y'", b2)} = 1`;
+    standard = `${fmtFracSq(u, a2, shiftMap[u])} + ${fmtFracSq(v, b2, shiftMap[v])} = 1`;
+    shifted = `${fmtFracSq(`${u}'`, a2)} + ${fmtFracSq(`${v}'`, b2)} = 1`;
   } else {
-    // elliptic_paraboloid: sgn * (z - z0) = (x - x0)^2 / a^2 + (y - y0)^2 / b^2
+    // elliptic_paraboloid: sgn * (w - w0) = (u - u0)^2 / a^2 + (v - v0)^2 / b^2
     const sgn = s.paraboloidSign;
-    denoms = [a2, b2];
-    const m = findCleanScale(denoms);
-    cx = m / a2;
-    cy = m / b2;
-    cz = 0;
-    lx = -2 * cx * x0;
-    ly = -2 * cy * y0;
-    lz = -sgn * m;
-    rhs = -sgn * m * z0 - cx * x0 * x0 - cy * y0 * y0;
+    const m = findCleanScale([a2, b2]);
+    quadCoeff[u] = m / a2;
+    quadCoeff[v] = m / b2;
+    linCoeff[u] = -2 * quadCoeff[u] * shiftMap[u];
+    linCoeff[v] = -2 * quadCoeff[v] * shiftMap[v];
+    linCoeff[w] = -sgn * m;
+    constTerm =
+      quadCoeff[u] * shiftMap[u] * shiftMap[u] +
+      quadCoeff[v] * shiftMap[v] * shiftMap[v] +
+      sgn * m * shiftMap[w];
 
-    const zSide = fmtShiftedVar('z', z0);
+    const wSide = fmtShiftedVar(w, shiftMap[w]);
     const lhsSign = sgn < 0 ? '-' : '';
-    standard = `${lhsSign}${zSide} = ${fmtFracSq('x', a2, x0)} + ${fmtFracSq('y', b2, y0)}`;
-    shifted = `${lhsSign}z' = ${fmtFracSq("x'", a2)} + ${fmtFracSq("y'", b2)}`;
+    standard = `${lhsSign}${wSide} = ${fmtFracSq(u, a2, shiftMap[u])} + ${fmtFracSq(v, b2, shiftMap[v])}`;
+    shifted = `${lhsSign}${w}' = ${fmtFracSq(`${u}'`, a2)} + ${fmtFracSq(`${v}'`, b2)}`;
   }
 
   const expandedLhs = buildLinearExpr([
-    [cx, 'x^2'],
-    [cy, 'y^2'],
-    [cz, 'z^2'],
-    [lx, 'x'],
-    [ly, 'y'],
-    [lz, 'z'],
+    [quadCoeff.x, 'x^2'],
+    [quadCoeff.y, 'y^2'],
+    [quadCoeff.z, 'z^2'],
+    [linCoeff.x, 'x'],
+    [linCoeff.y, 'y'],
+    [linCoeff.z, 'z'],
+    [constTerm, ''],
   ]);
 
-  const expanded = `${expandedLhs} = ${fmtNum(rhs)}`;
+  const expanded = `${expandedLhs} = 0`;
 
   const sx = `x' = ${fmtShiftedVar('x', x0)}`;
   const sy = `y' = ${fmtShiftedVar('y', y0)}`;
-  const sz = surfaceType === 'elliptic_cylinder' ? '' : `,\\; z' = ${fmtShiftedVar('z', z0)}`;
-  const axisShiftSummary = `${sx},\\; ${sy}${sz}`;
+  const sz = `,\\; z' = ${fmtShiftedVar('z', z0)}`;
+  const axisShiftSummary =
+    surfaceType === 'elliptic_cylinder'
+      ? `${u}' = ${fmtShiftedVar(u, shiftMap[u])},\\; ${v}' = ${fmtShiftedVar(v, shiftMap[v])}`
+      : `${sx},\\; ${sy}${sz}`;
 
   return { expanded, standard, shifted, axisShiftSummary };
 }

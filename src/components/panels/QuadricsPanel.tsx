@@ -1,6 +1,11 @@
+import { Eye, EyeOff } from 'lucide-react';
 import type { AppLang, AxisName, QuadricMode, QuadricsState } from '../../types';
+import { getQuadricInterceptRows } from '../../math/intercepts';
+import { buildQuadricEquationLatex, buildQuadricGeneralLatex } from '../../math/latex';
 import { QUADRIC_INFO, QUADRIC_PRESETS } from '../../math/presets';
 import { axisVarNames } from '../../math/coords';
+import { AxisInterceptsBox } from '../AxisInterceptsBox';
+import { KaTeX } from '../KaTeX';
 import { SliderControl } from '../SliderControl';
 
 interface QuadricsPanelProps {
@@ -30,11 +35,16 @@ export function QuadricsPanel({ state, onChange, lang = 'th' }: QuadricsPanelPro
   const isEllipsoid = state.mode === 'ellipsoid';
   const isParaboloid =
     state.mode === 'elliptic_paraboloid' || state.mode === 'hyperbolic_paraboloid';
+  const hideSolution = state.quizMode && !state.quizRevealed;
+
+  const generalLatex = buildQuadricGeneralLatex(state);
+  const standardLatex = buildQuadricEquationLatex(state);
+  const interceptRows = getQuadricInterceptRows(state);
 
   let morphStatus = '';
   if (state.mode === 'morph') {
     if (Math.abs(state.morphD) < 0.04) {
-      morphStatus = isEn ? 'd = 0 → Elliptic Cone' : 'd = 0 → กรวยวงรี (Elliptic Cone)';
+      morphStatus = isEn ? 'd = 0 → Elliptic Cone' : 'd = 0 → กรวยเชิงวงรี (Elliptic Cone)';
     } else if (state.morphD > 0) {
       morphStatus = isEn ? 'd > 0 → 1-Sheet Hyperboloid' : 'd > 0 → ไฮเพอร์โบลอยด์ 1 ชิ้น (1-Sheet)';
     } else {
@@ -54,13 +64,84 @@ export function QuadricsPanel({ state, onChange, lang = 'th' }: QuadricsPanelPro
             <button
               key={p.id}
               type="button"
-              onClick={() => update(p.value)}
+              onClick={() =>
+                update({
+                  ...p.value,
+                  quizRevealed: state.quizMode ? false : state.quizRevealed,
+                })
+              }
               className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-[11px] font-semibold text-slate-700 dark:text-slate-200"
             >
               {isEn ? p.label.en : p.label.th}
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Equation & Quiz Mode */}
+      <div className="p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-900/70 bg-indigo-50/50 dark:bg-indigo-950/30 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+            {isEn ? 'Equation & Classification' : 'สมการและการจำแนกรูปทรง'}
+          </span>
+          <button
+            type="button"
+            onClick={() => update({ quizMode: !state.quizMode, quizRevealed: false })}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition ${
+              state.quizMode
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700'
+            }`}
+          >
+            {isEn
+              ? state.quizMode
+                ? 'Quiz Mode: ON'
+                : 'Quiz Mode'
+              : state.quizMode
+                ? 'โหมดทายรูปทรง: เปิด'
+                : 'โหมดควิซ (ทายรูปทรง)'}
+          </button>
+        </div>
+
+        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800">
+          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+            {isEn ? 'General Form (Given Problem)' : 'สมการรูปทั่วไป (โจทย์)'}
+          </div>
+          <div className="overflow-x-auto overflow-y-hidden leading-normal py-1 text-slate-800 dark:text-slate-100">
+            <KaTeX math={generalLatex} />
+          </div>
+        </div>
+
+        {hideSolution ? (
+          <button
+            type="button"
+            onClick={() => update({ quizRevealed: true })}
+            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm"
+          >
+            <Eye className="w-4 h-4" />{' '}
+            {isEn ? 'Reveal Surface Name, Standard Form & Intercepts' : 'เฉลยชื่อรูปทรง รูปมาตรฐาน และจุดตัดแกน'}
+          </button>
+        ) : (
+          <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-sky-200/80 dark:border-sky-900/60 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                {isEn ? 'Standard Form' : 'สมการรูปมาตรฐาน (Standard Form)'}
+              </span>
+              {state.quizMode && (
+                <button
+                  type="button"
+                  onClick={() => update({ quizRevealed: false })}
+                  className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-300 hover:underline"
+                >
+                  <EyeOff className="w-3 h-3" /> {isEn ? 'Hide' : 'ซ่อนเฉลย'}
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto overflow-y-hidden leading-normal py-1 text-sky-700 dark:text-sky-300">
+              <KaTeX math={standardLatex} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mode Selector */}
@@ -70,13 +151,18 @@ export function QuadricsPanel({ state, onChange, lang = 'th' }: QuadricsPanelPro
         </label>
         <div className="grid grid-cols-1 gap-1.5">
           {QUADRIC_MODES.map((m) => {
-            const active = state.mode === m;
+            const active = state.mode === m && !hideSolution;
             const isMorph = m === 'morph';
             return (
               <button
                 key={m}
                 type="button"
-                onClick={() => update({ mode: m })}
+                onClick={() =>
+                  update({
+                    mode: m,
+                    quizRevealed: state.quizMode ? false : state.quizRevealed,
+                  })
+                }
                 className={`px-3 py-2 rounded-xl border text-left transition text-xs flex items-center justify-between gap-2 ${
                   active
                     ? isMorph
@@ -95,15 +181,21 @@ export function QuadricsPanel({ state, onChange, lang = 'th' }: QuadricsPanelPro
         </div>
       </div>
 
-      {/* Summary Note */}
-      <div className="px-3 py-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs space-y-0.5">
-        <div className="font-semibold text-sky-900 dark:text-sky-200">
-          {isEn ? info.name.en : info.name.th}
-        </div>
-        <div className="text-[11px] text-sky-800/90 dark:text-sky-300/90 leading-relaxed">
-          {isEn ? info.summary.en : info.summary.th}
-        </div>
-      </div>
+      {!hideSolution && (
+        <>
+          {/* Summary Note */}
+          <div className="px-3 py-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs space-y-0.5">
+            <div className="font-semibold text-sky-900 dark:text-sky-200">
+              {isEn ? info.name.en : info.name.th}
+            </div>
+            <div className="text-[11px] text-sky-800/90 dark:text-sky-300/90 leading-relaxed">
+              {isEn ? info.summary.en : info.summary.th}
+            </div>
+          </div>
+
+          <AxisInterceptsBox rows={interceptRows} lang={lang} />
+        </>
+      )}
 
       {/* Morph Slider */}
       {state.mode === 'morph' && (

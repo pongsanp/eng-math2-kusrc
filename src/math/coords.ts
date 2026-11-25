@@ -36,7 +36,7 @@ export function axisPermute(u: number, v: number, w: number, axis: AxisName): Ve
   return [u, v, w];
 }
 
-export function axisVarNames(axis: AxisName): { u: string; v: string; w: string } {
+export function axisVarNames(axis: AxisName): { u: AxisName; v: AxisName; w: AxisName } {
   if (axis === 'x') return { u: 'y', v: 'z', w: 'x' };
   if (axis === 'y') return { u: 'x', v: 'z', w: 'y' };
   return { u: 'x', v: 'y', w: 'z' };

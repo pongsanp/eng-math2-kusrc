@@ -168,6 +168,17 @@ export function PlanesPanel({ state, onChange, lang = 'th' }: PlanesPanelProps) 
       <div className="space-y-2 text-xs">
         <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
           <span className="font-medium text-slate-700 dark:text-slate-200">
+            {isEn ? 'Show Reference Plane (x=0 / y=0 / z=0)' : 'แสดงระนาบอ้างอิงเทียบ (x=0 / y=0 / z=0)'}
+          </span>
+          <input
+            type="checkbox"
+            checked={state.showRefPlane}
+            onChange={(e) => update({ showRefPlane: e.target.checked })}
+            className="w-4 h-4 accent-orange-500"
+          />
+        </label>
+        <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+          <span className="font-medium text-slate-700 dark:text-slate-200">
             {isEn ? 'Show Normal Vector n' : 'แสดงเวกเตอร์แนวฉาก (Normal Vector n)'}
           </span>
           <input

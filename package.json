@@ -2,6 +2,17 @@
   "name": "eng-math-2-dashboard",
   "private": true,
   "version": "0.0.0",
+  "description": "Interactive 3D Surfaces Dashboard & Annotated Lecture Slides for 01417168 Engineering Mathematics II",
+  "license": "CC-BY-NC-4.0",
+  "author": {
+    "name": "Pongsan Prakitsri (ผศ.ดร.พงษ์สัญ ประกฤตศรี) — Faculty of Science at Sriracha, Kasetsart University Sriracha Campus",
+    "url": "https://github.com/pongsanp/eng-math2-kusrc"
+  },
+  "homepage": "https://pongsanp.github.io/eng-math2-kusrc/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pongsanp/eng-math2-kusrc.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

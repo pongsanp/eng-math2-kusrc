@@ -1,4 +1,5 @@
 import type { AppLang, CoordsVecState } from '../../../types';
+import { fmtNum } from '../../../math/latex';
 import {
   COORDS_VEC_PRESETS,
   SINGLE_POINT_PRESETS,
@@ -157,9 +158,65 @@ export function CoordsVecPanel({ state, lang = 'th', onChange }: CoordsVecPanelP
                 <KaTeX math={`d(O,P) = ${fmtNormExactOrDecimal(state.p2)}`} />
               </span>
             </div>
+
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 pt-1">
+              {isEn ? 'Perpendicular Distance from Coordinate Planes' : 'ระยะตั้งฉากจากระนาบพิกัดฉาก'}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="p-1.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/50">
+                <div className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                  {isEn ? 'xy-plane (z=0)' : 'จากระนาบ xy'}
+                </div>
+                <div className="font-mono font-bold text-slate-800 dark:text-slate-100">
+                  |z| = {fmtNum(Math.abs(state.p2[2]))}
+                </div>
+              </div>
+              <div className="p-1.5 rounded-lg bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/70 dark:border-sky-900/50">
+                <div className="text-[10px] text-sky-700 dark:text-sky-300">
+                  {isEn ? 'xz-plane (y=0)' : 'จากระนาบ xz'}
+                </div>
+                <div className="font-mono font-bold text-slate-800 dark:text-slate-100">
+                  |y| = {fmtNum(Math.abs(state.p2[1]))}
+                </div>
+              </div>
+              <div className="p-1.5 rounded-lg bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200/70 dark:border-orange-900/50">
+                <div className="text-[10px] text-orange-700 dark:text-orange-300">
+                  {isEn ? 'yz-plane (x=0)' : 'จากระนาบ yz'}
+                </div>
+                <div className="font-mono font-bold text-slate-800 dark:text-slate-100">
+                  |x| = {fmtNum(Math.abs(state.p2[0]))}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2 text-xs">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              {isEn ? 'Coordinate Planes & Guides' : 'ระนาบพิกัดฉากและเส้นช่วย'}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { key: 'showPlaneXY' as const, label: 'xy (z = 0)', color: 'accent-emerald-600' },
+                { key: 'showPlaneXZ' as const, label: 'xz (y = 0)', color: 'accent-sky-600' },
+                { key: 'showPlaneYZ' as const, label: 'yz (x = 0)', color: 'accent-orange-500' },
+              ].map((pl) => (
+                <label
+                  key={pl.key}
+                  className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                >
+                  <span className="font-mono font-semibold text-[11px] text-slate-700 dark:text-slate-200">
+                    {pl.label}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={state[pl.key]}
+                    onChange={(e) => update({ [pl.key]: e.target.checked })}
+                    className={`w-3.5 h-3.5 ${pl.color}`}
+                  />
+                </label>
+              ))}
+            </div>
+
             <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
               <span className="font-medium text-slate-700 dark:text-slate-200">
                 {isEn ? 'Show Coordinate Box' : 'แสดงกล่องเส้นประพิกัด (Coordinate Box)'}
@@ -182,6 +239,17 @@ export function CoordsVecPanel({ state, lang = 'th', onChange }: CoordsVecPanelP
                 checked={state.showPlaneProjections}
                 onChange={(e) => update({ showPlaneProjections: e.target.checked })}
                 className="w-4 h-4 accent-emerald-600"
+              />
+            </label>
+            <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {isEn ? 'Highlight Active Octant' : 'แรเงาขอบเขตอัฐภาค (Octant Volume)'}
+              </span>
+              <input
+                type="checkbox"
+                checked={state.highlightOctant}
+                onChange={(e) => update({ highlightOctant: e.target.checked })}
+                className="w-4 h-4 accent-indigo-600"
               />
             </label>
           </div>

@@ -1,9 +1,13 @@
 # 01417168 Engineering Mathematics II — 3D Surfaces & Interactive Slides
 
-สื่อการสอนแบบ Interactive 3 มิติและสไลด์ประกอบการสอนรายวิชา **01417168 คณิตศาสตร์วิศวกรรม II** คณะวิทยาศาสตร์ ศรีราชา มหาวิทยาลัยเกษตรศาสตร์
+สื่อการสอนแบบ Interactive 3 มิติและสไลด์ประกอบการสอนรายวิชา **01417168 คณิตศาสตร์วิศวกรรม II**
 
-- **เว็บไซต์ (GitHub Pages)**: https://pongsanp.github.io/eng-math2-kusrc/
-- **Repository**: https://github.com/pongsanp/eng-math2-kusrc
+- **ผู้จัดทำ (Author):**
+  - ผศ.ดร.พงษ์สัญ ประกฤตศรี — คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์ วิทยาเขตศรีราชา
+  - Pongsan Prakitsri — Faculty of Science at Sriracha, Kasetsart University Sriracha Campus
+- **เว็บไซต์ (GitHub Pages):** https://pongsanp.github.io/eng-math2-kusrc/
+- **Repository:** https://github.com/pongsanp/eng-math2-kusrc
+- **สัญญาอนุญาต (License):** [CC BY-NC 4.0 (Creative Commons Attribution-NonCommercial 4.0 International)](LICENSE) — นำไปใช้และดัดแปลงเพื่อการศึกษาได้โดยต้องระบุชื่อผู้จัดทำและแหล่งที่มา ห้ามนำไปใช้ในเชิงพาณิชย์
 
 ---
 

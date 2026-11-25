@@ -26,6 +26,10 @@ export interface CoordsVecState {
   subMode: 'single_point' | 'vector';
   plotStep: 1 | 2 | 3;
   showPlaneProjections: boolean;
+  showPlaneXY: boolean;
+  showPlaneXZ: boolean;
+  showPlaneYZ: boolean;
+  highlightOctant: boolean;
   p1: Vec3Tuple;
   p2: Vec3Tuple;
   showCoordBox: boolean;
@@ -87,6 +91,7 @@ export type TranslatedSurfaceType =
   | 'elliptic_paraboloid'
   | 'cone'
   | 'hyperboloid_1'
+  | 'hyperboloid_2'
   | 'elliptic_cylinder';
 
 export interface PlanesState {
@@ -94,6 +99,7 @@ export interface PlanesState {
   b: number;
   c: number;
   d: number;
+  showRefPlane: boolean;
   showNormal: boolean;
   showIntercepts: boolean;
   showCoordTraces: boolean;
@@ -110,6 +116,8 @@ export interface CylindersState {
   isAnimatingExtrusion: boolean;
   showGeneratingCurve: boolean;
   showRulings: boolean;
+  quizMode: boolean;
+  quizRevealed: boolean;
 }
 
 export interface QuadricsState {
@@ -123,10 +131,13 @@ export interface QuadricsState {
   slicingEnabled: boolean;
   slicePlane: AxisName;
   sliceK: number;
+  quizMode: boolean;
+  quizRevealed: boolean;
 }
 
 export interface TranslationState {
   surfaceType: TranslatedSurfaceType;
+  symmetryAxis: AxisName;
   paraboloidSign: 1 | -1;
   x0: number;
   y0: number;

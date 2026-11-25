@@ -1,5 +1,6 @@
 import { Eye, EyeOff } from 'lucide-react';
-import type { AppLang, TranslatedSurfaceType, TranslationState } from '../../types';
+import type { AppLang, AxisName, TranslatedSurfaceType, TranslationState } from '../../types';
+import { axisVarNames } from '../../math/coords';
 import { TRANSLATION_PRESETS, TRANSLATION_SURFACE_NAMES } from '../../math/presets';
 import { buildTranslationEquationsLatex } from '../../math/latex';
 import { KaTeX } from '../KaTeX';
@@ -11,11 +12,14 @@ interface TranslationPanelProps {
   lang?: AppLang;
 }
 
+const AXES: AxisName[] = ['x', 'y', 'z'];
+
 const SURFACE_TYPES: TranslatedSurfaceType[] = [
   'ellipsoid',
   'elliptic_paraboloid',
   'cone',
   'hyperboloid_1',
+  'hyperboloid_2',
   'elliptic_cylinder',
 ];
 
@@ -24,6 +28,10 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
   const update = (patch: Partial<TranslationState>) => onChange({ ...state, ...patch });
   const eqs = buildTranslationEquationsLatex(state);
   const hideSolution = state.quizMode && !state.quizRevealed;
+  const { u, v, w } = axisVarNames(state.symmetryAxis);
+  const isEllipsoid = state.surfaceType === 'ellipsoid';
+  const isParaboloid = state.surfaceType === 'elliptic_paraboloid';
+  const isCylinder = state.surfaceType === 'elliptic_cylinder';
 
   return (
     <div className="space-y-4">
@@ -37,7 +45,12 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
             <button
               key={p.id}
               type="button"
-              onClick={() => update(p.value)}
+              onClick={() =>
+                update({
+                  ...p.value,
+                  quizRevealed: state.quizMode ? false : state.quizRevealed,
+                })
+              }
               className="text-left px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-xs"
             >
               <div className="font-semibold text-slate-700 dark:text-slate-200 truncate">
@@ -125,13 +138,43 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
         />
       </div>
 
-      {/* Shape Scale Sliders */}
+      {/* Shape Scale & Symmetry Axis */}
       <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+        {!isEllipsoid && (
+          <div className="space-y-1.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+              {isCylinder
+                ? isEn
+                  ? 'Missing Variable (Cylinder Axis)'
+                  : 'แกนทรงกระบอก (ตัวแปรที่หายไป)'
+                : isEn
+                  ? 'Symmetry Axis'
+                  : 'แกนสมมาตรของรูปทรง (Symmetry Axis)'}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {AXES.map((ax) => (
+                <button
+                  key={ax}
+                  type="button"
+                  onClick={() => update({ symmetryAxis: ax })}
+                  className={`py-1.5 rounded-xl border font-semibold text-xs transition ${
+                    state.symmetryAxis === ax
+                      ? 'border-sky-500 bg-sky-600 text-white shadow-sm'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
+                  }`}
+                >
+                  {isEn ? `${ax}-axis` : `แกน ${ax}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
           {isEn ? 'Shape Scale (a, b, c)' : 'สเกลรูปทรง (a, b, c)'}
         </div>
         <SliderControl
-          label={isEn ? "a (x'-axis)" : "a (แกน x')"}
+          label={isEn ? `a (${u}'-axis)` : `a (แกน ${u}')`}
           value={state.a}
           min={0.5}
           max={3}
@@ -139,14 +182,14 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
           onChange={(a) => update({ a })}
         />
         <SliderControl
-          label={isEn ? "b (y'-axis)" : "b (แกน y')"}
+          label={isEn ? `b (${v}'-axis)` : `b (แกน ${v}')`}
           value={state.b}
           min={0.5}
           max={3}
           step={0.5}
           onChange={(b) => update({ b })}
         />
-        {state.surfaceType === 'elliptic_paraboloid' && (
+        {isParaboloid && (
           <div className="pt-1.5 border-t border-slate-200/80 dark:border-slate-800 space-y-1.5">
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
               {isEn ? 'Opening Orientation' : 'ทิศทางเปิด (Orientation)'}
@@ -161,7 +204,7 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-sky-400'
                 }`}
               >
-                {isEn ? '+z (upward)' : '+z (หงาย)'}
+                {isEn ? `+${w}' (opens +)` : `+${w}' (หงาย / ด้านบวก)`}
               </button>
               <button
                 type="button"
@@ -172,22 +215,31 @@ export function TranslationPanel({ state, onChange, lang = 'th' }: TranslationPa
                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-rose-400'
                 }`}
               >
-                {isEn ? '-z (downward)' : '-z (คว่ำ)'}
+                {isEn ? `-${w}' (opens -)` : `-${w}' (คว่ำ / ด้านลบ)`}
               </button>
             </div>
           </div>
         )}
-        {state.surfaceType !== 'elliptic_paraboloid' &&
-          state.surfaceType !== 'elliptic_cylinder' && (
-            <SliderControl
-              label={isEn ? "c (z'-axis)" : "c (แกน z')"}
-              value={state.c}
-              min={0.5}
-              max={3}
-              step={0.5}
-              onChange={(c) => update({ c })}
-            />
-          )}
+        {!isParaboloid && !isCylinder && (
+          <SliderControl
+            label={isEn ? `c (${w}'-axis)` : `c (แกน ${w}')`}
+            value={state.c}
+            min={0.5}
+            max={3}
+            step={0.5}
+            onChange={(c) => update({ c })}
+          />
+        )}
+      </div>
+
+      {/* Completing the Square Hint Box */}
+      <div className="px-3 py-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/35 border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-900 dark:text-amber-200 space-y-1">
+        <div className="font-bold">
+          {isEn ? 'Completing the Square Formula:' : 'ทบทวนกำลังสองสมบูรณ์:'}
+        </div>
+        <div className="overflow-x-auto overflow-y-hidden leading-normal">
+          <KaTeX math="u^2 \pm 2uk + k^2 = (u \pm k)^2" />
+        </div>
       </div>
 
       {/* 3-Form Equation Comparison & Quiz Mode */}

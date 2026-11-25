@@ -540,6 +540,41 @@ export function addAxesSet(
   }
 }
 
+export function addQuadPatch(
+  group: THREE.Group,
+  cornersMath: [Vec3, Vec3, Vec3, Vec3],
+  color: string | number,
+  opacity = 0.18,
+  borderOpacity = 0.65,
+  dashedBorder = false,
+) {
+  const cThree = cornersMath.map((c) => mathVecToThree(c));
+  const geom = new THREE.BufferGeometry().setFromPoints([
+    cThree[0],
+    cThree[1],
+    cThree[2],
+    cThree[0],
+    cThree[2],
+    cThree[3],
+  ]);
+  geom.computeVertexNormals();
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  group.add(new THREE.Mesh(geom, mat));
+  addPolyline(
+    group,
+    [cornersMath[0], cornersMath[1], cornersMath[2], cornersMath[3], cornersMath[0]],
+    color,
+    borderOpacity,
+    dashedBorder,
+  );
+}
+
 export function disposeObject3D(root: THREE.Object3D) {
   root.traverse((obj) => {
     if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) {

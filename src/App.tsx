@@ -50,8 +50,10 @@ import type {
 } from './types';
 import {
   buildCylinderEquationLatex,
+  buildCylinderGeneralLatex,
   buildPlaneEquationLatex,
   buildQuadricEquationLatex,
+  buildQuadricGeneralLatex,
   buildTranslationEquationsLatex,
   fmtNum,
 } from './math/latex';
@@ -168,6 +170,10 @@ export default function App() {
     subMode: 'single_point',
     plotStep: 3,
     showPlaneProjections: true,
+    showPlaneXY: false,
+    showPlaneXZ: false,
+    showPlaneYZ: false,
+    highlightOctant: false,
     p1: [1, -1, 1],
     p2: [2, 3, 2],
     showCoordBox: true,
@@ -264,6 +270,7 @@ export default function App() {
     b: 3,
     c: 2,
     d: 6,
+    showRefPlane: true,
     showNormal: true,
     showIntercepts: true,
     showCoordTraces: true,
@@ -280,6 +287,8 @@ export default function App() {
     isAnimatingExtrusion: false,
     showGeneratingCurve: true,
     showRulings: true,
+    quizMode: false,
+    quizRevealed: false,
   });
 
   const [quadrics, setQuadrics] = useState<QuadricsState>({
@@ -293,10 +302,13 @@ export default function App() {
     slicingEnabled: true,
     slicePlane: 'z',
     sliceK: 1.5,
+    quizMode: false,
+    quizRevealed: false,
   });
 
   const [translation, setTranslation] = useState<TranslationState>({
     surfaceType: 'ellipsoid',
+    symmetryAxis: 'z',
     paraboloidSign: 1,
     x0: 2,
     y0: -1,
@@ -581,6 +593,14 @@ export default function App() {
       };
     }
     if (activeTab === 'cylinders') {
+      const hideSol = cylinders.quizMode && !cylinders.quizRevealed;
+      if (hideSol) {
+        return {
+          titleTh: 'โหมดควิซ: ทายชื่อทรงกระบอก & จุดตัดแกน',
+          titleEn: 'Quiz Mode: Identify Cylinder & Intercepts',
+          latex: buildCylinderGeneralLatex(cylinders),
+        };
+      }
       const info = CYLINDER_INFO[cylinders.type];
       return {
         titleTh: info.name.th,
@@ -589,6 +609,14 @@ export default function App() {
       };
     }
     if (activeTab === 'quadrics') {
+      const hideSol = quadrics.quizMode && !quadrics.quizRevealed;
+      if (hideSol) {
+        return {
+          titleTh: 'โหมดควิซ: ทายชื่อรูปทรง & จุดตัดแกน',
+          titleEn: 'Quiz Mode: Identify Surface & Intercepts',
+          latex: buildQuadricGeneralLatex(quadrics),
+        };
+      }
       const info = QUADRIC_INFO[quadrics.mode];
       return {
         titleTh: info.name.th,
@@ -599,8 +627,12 @@ export default function App() {
     const eqs = buildTranslationEquationsLatex(translation);
     const hideSol = translation.quizMode && !translation.quizRevealed;
     return {
-      titleTh: `การย้ายแกน: ${TRANSLATION_SURFACE_NAMES[translation.surfaceType].th}`,
-      titleEn: `Translation: ${TRANSLATION_SURFACE_NAMES[translation.surfaceType].en}`,
+      titleTh: hideSol
+        ? 'โหมดควิซ: จัดกำลังสองสมบูรณ์และหาจุดกำเนิดใหม่'
+        : `การย้ายแกน: ${TRANSLATION_SURFACE_NAMES[translation.surfaceType].th}`,
+      titleEn: hideSol
+        ? 'Quiz Mode: Complete the Square'
+        : `Translation: ${TRANSLATION_SURFACE_NAMES[translation.surfaceType].en}`,
       latex: hideSol ? eqs.expanded : eqs.standard,
     };
   }, [

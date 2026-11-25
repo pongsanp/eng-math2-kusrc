@@ -206,12 +206,32 @@ const STAGE_WIDTH = 1280;
 const STAGE_HEIGHT = 720;
 const NAV_DIR_STORAGE_KEY = 'eng_math_2_nav_dir';
 const TOOLBAR_POS_STORAGE_KEY = 'eng_math_2_toolbar_pos';
+const LAST_SLIDE_ID_STORAGE_KEY = `eng_math_2_${DECK_ID}_last_entry_id`;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
+function readSavedSlideEntryId(): number | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_SLIDE_ID_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed !== 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
   const isEn = lang === 'en';
-  const [slideIdx, setSlideIdx] = useState(0);
+  const pendingRestoreIdRef = useRef<number | null>(readSavedSlideEntryId());
+  const [slideIdx, setSlideIdx] = useState(() => {
+    const savedId = readSavedSlideEntryId();
+    if (savedId !== null && savedId > 0) {
+      const idx = CH1_VISIBLE_SLIDES.findIndex((s) => s.id === savedId);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  });
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [textScale, setTextScale] = useState<TextScale>('large');
   const [navDirection, setNavDirection] = useState<NavDirection>(() => {
@@ -345,9 +365,21 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     });
     void loadCustomBlankPages(DECK_ID).then((loadedPages) => {
       if (cancelled) return;
-      if (customPagesRef.current.length > 0) return;
-      customPagesRef.current = loadedPages;
-      setCustomPages(loadedPages);
+      if (customPagesRef.current.length === 0 && loadedPages.length > 0) {
+        customPagesRef.current = loadedPages;
+        setCustomPages(loadedPages);
+      }
+      const pendingId = pendingRestoreIdRef.current;
+      pendingRestoreIdRef.current = null;
+      if (pendingId !== null) {
+        const effectivePages =
+          customPagesRef.current.length > 0 ? customPagesRef.current : loadedPages;
+        const entries = buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, effectivePages);
+        const restoredIdx = entries.findIndex((e) => e.id === pendingId);
+        if (restoredIdx >= 0) {
+          setSlideIdx(restoredIdx);
+        }
+      }
     });
     return () => {
       cancelled = true;
@@ -370,6 +402,15 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   const lecture2StartIdx = orderedEntries.findIndex((e) => e.lecture === 2);
   const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalEntries;
   const fs = FONT_SCALE_MAP[textScale];
+
+  useEffect(() => {
+    if (pendingRestoreIdRef.current !== null) return;
+    try {
+      window.localStorage.setItem(LAST_SLIDE_ID_STORAGE_KEY, String(activeId));
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeId]);
 
   useEffect(() => {
     try {
@@ -454,6 +495,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   }, [clampPan, compactBars, overviewOpen]);
 
   const goPrev = useCallback(() => {
+    pendingRestoreIdRef.current = null;
     setExportMenuOpen(false);
     setColorPickerOpen(false);
     setSelectTrigger(null);
@@ -461,6 +503,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   }, []);
 
   const goNext = useCallback(() => {
+    pendingRestoreIdRef.current = null;
     setExportMenuOpen(false);
     setColorPickerOpen(false);
     setSelectTrigger(null);
