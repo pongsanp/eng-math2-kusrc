@@ -5,6 +5,7 @@ import {
   type BlankPaperStyle,
   type CustomBlankPage,
   type PrintScope,
+  type RenderedInkExport,
   type SlideLang,
 } from '../../slides/inkUtils';
 import { KaTeX } from '../KaTeX';
@@ -12,10 +13,24 @@ import { RichMathText } from './RichMathText';
 
 interface SlidePrintViewProps {
   includeInk: boolean;
-  inkImagesBySlide: Record<number, string>;
+  inkImagesBySlide: Record<number, RenderedInkExport>;
   printScope: PrintScope;
   customPages?: CustomBlankPage[];
   lang?: SlideLang;
+}
+
+function renderInkOverlayImg(inkExport?: RenderedInkExport) {
+  if (!inkExport?.dataUrl) return null;
+  const topPct = -inkExport.topExtendRatio * 100;
+  const heightPct = (1 + inkExport.topExtendRatio) * 100;
+  return (
+    <img
+      src={inkExport.dataUrl}
+      alt=""
+      style={{ top: `${topPct}%`, height: `${heightPct}%` }}
+      className="absolute inset-x-0 w-full pointer-events-none z-20"
+    />
+  );
 }
 
 function SvgHaloText({
@@ -578,7 +593,7 @@ function renderPrintSlide(
   includeInk: boolean,
   scopeText: string,
   lang: SlideLang,
-  inkDataUrl?: string,
+  inkExport?: RenderedInkExport,
 ) {
   const isEn = lang === 'en';
   const loc = getLocalizedSlide(slide, lang);
@@ -731,13 +746,7 @@ function renderPrintSlide(
           )}
 
           {/* Transparent Handwritten Ink PNG Overlay (aligned 1:1 to Slide Body) */}
-          {includeInk && inkDataUrl && (
-            <img
-              src={inkDataUrl}
-              alt=""
-              className="absolute inset-0 w-full h-full pointer-events-none z-20"
-            />
-          )}
+          {includeInk && renderInkOverlayImg(inkExport)}
         </div>
       </div>
 
@@ -790,7 +799,7 @@ function renderPrintBlankPage(
   includeInk: boolean,
   scopeText: string,
   lang: SlideLang,
-  inkDataUrl?: string,
+  inkExport?: RenderedInkExport,
 ) {
   const isEn = lang === 'en';
   const styleLabel = isEn
@@ -842,13 +851,7 @@ function renderPrintBlankPage(
                 className="h-full w-full rounded-2xl border border-dashed border-slate-300 bg-white"
                 style={getBlankPaperStyleCss(page.paperStyle)}
               />
-              {includeInk && inkDataUrl && (
-                <img
-                  src={inkDataUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full pointer-events-none z-20"
-                />
-              )}
+              {includeInk && renderInkOverlayImg(inkExport)}
             </div>
           </div>
 

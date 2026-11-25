@@ -39,7 +39,10 @@ import {
 } from 'lucide-react';
 import {
   CH1_VISIBLE_SLIDES,
+  getConceptDashboardTarget,
+  getExampleDashboardTarget,
   getLocalizedSlide,
+  type Ch1DashboardTarget,
   type SlideDef,
   type SlideFormulaBlock,
 } from '../../slides/ch1SlidesData';
@@ -57,7 +60,7 @@ import {
   cloneStrokesWithOffset,
   detectInAppBrowser,
   isStylusTouch,
-  renderStrokesToDataUrl,
+  renderStrokesForExport,
   resolveSwipeDirection,
   type AnnotationTool,
   type BlankPaperStyle,
@@ -67,6 +70,7 @@ import {
   type LaserStyle,
   type NavDirection,
   type PrintScope,
+  type RenderedInkExport,
   type SelectionShape,
   type SlideLang,
   type ToolbarDock,
@@ -77,6 +81,7 @@ import { SlidePrintView } from './SlidePrintView';
 
 interface SlidesDeckProps {
   onBackToDashboard: () => void;
+  onOpenDashboardTarget?: (target: Ch1DashboardTarget) => void;
   lang: SlideLang;
   onChangeLang: (lang: SlideLang) => void;
 }
@@ -238,7 +243,12 @@ export function SlidesDeck(props: SlidesDeckProps) {
   return <SlidesDeckInner key={storageDeckId} {...props} />;
 }
 
-function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
+function SlidesDeckInner({
+  onBackToDashboard,
+  onOpenDashboardTarget,
+  lang,
+  onChangeLang,
+}: SlidesDeckProps) {
   const isEn = lang === 'en';
   const storageDeckId = getStorageDeckId(lang);
   const legacyInkKey = getLegacyInkKey(lang);
@@ -337,11 +347,13 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportScope, setExportScope] = useState<PrintScope>('all');
   const [printIncludeInk, setPrintIncludeInk] = useState(false);
-  const [inkImagesBySlide, setInkImagesBySlide] = useState<Record<number, string>>({});
+  const [inkImagesBySlide, setInkImagesBySlide] = useState<Record<number, RenderedInkExport>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [exportBlockedMessage, setExportBlockedMessage] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const printFallbackTimerRef = useRef<number | null>(null);
+  const slideHeaderRef = useRef<HTMLDivElement | null>(null);
+  const [slideHeaderHeight, setSlideHeaderHeight] = useState(0);
   const inAppBrowser = detectInAppBrowser(undefined, lang);
 
   useEffect(() => {
@@ -516,6 +528,21 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
     return () => ro.disconnect();
   }, [clampPan, compactBars, overviewOpen]);
 
+  useEffect(() => {
+    const hdr = slideHeaderRef.current;
+    if (!hdr) return;
+    const syncHdr = () => {
+      setSlideHeaderHeight(hdr.offsetHeight);
+    };
+    const rafId = window.requestAnimationFrame(syncHdr);
+    const ro = new ResizeObserver(syncHdr);
+    ro.observe(hdr);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
+  }, [safeSlideIdx, textScale, lang, activeEntry.kind]);
+
   const goPrev = useCallback(() => {
     pendingRestoreIdRef.current = null;
     hydratedRef.current = true;
@@ -597,7 +624,7 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
 
   const handlePasteClipboard = useCallback(() => {
     if (clipboardStrokes.length === 0) return;
-    const clones = cloneStrokesWithOffset(clipboardStrokes, 0.015, 0.015);
+    const clones = cloneStrokesWithOffset(clipboardStrokes, 0.015, 0.015, -0.35);
     if (clones.length === 0) return;
     const curLen = (strokesRef.current[activeId] ?? []).length;
     const newIndices = clones.map((_, i) => curLen + i);
@@ -1146,13 +1173,13 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
   }, [inAppBrowser.appName, inAppBrowser.isInApp, isEn]);
 
   const triggerExportPdf = async (withInk: boolean) => {
-    const generated: Record<number, string> = {};
+    const generated: Record<number, RenderedInkExport> = {};
     if (withInk) {
       for (const entry of scopedEntries) {
         const list = strokesBySlide[entry.id];
         if (list && list.length > 0) {
-          const url = renderStrokesToDataUrl(list, 1920, 1080);
-          if (url) generated[entry.id] = url;
+          const rendered = renderStrokesForExport(list, 1920, 1080);
+          if (rendered.dataUrl) generated[entry.id] = rendered;
         }
       }
     }
@@ -2534,9 +2561,14 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
                   transformOrigin: 'top left',
                 }}
               >
+              {/* Combined Header + Body Overlay Stage (allows continuous writing on both Header and Body) */}
+              <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
               {/* Slide Header (Built-in vs Blank Note Page) */}
               {activeEntry.kind === 'blank' ? (
-                <div className="shrink-0 px-6 pt-2.5 pb-2 border-b border-slate-200 bg-gradient-to-r from-emerald-50/70 via-white to-sky-50/50 flex items-center justify-between gap-4">
+                <div
+                  ref={slideHeaderRef}
+                  className="shrink-0 px-6 pt-2.5 pb-2 border-b border-slate-200 bg-gradient-to-r from-emerald-50/70 via-white to-sky-50/50 flex items-center justify-between gap-4"
+                >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
                       <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
@@ -2596,7 +2628,10 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
                   </div>
                 </div>
               ) : (
-                <div className="shrink-0 px-6 pt-2.5 pb-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4">
+                <div
+                  ref={slideHeaderRef}
+                  className="shrink-0 px-6 pt-2.5 pb-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4"
+                >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
                       <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
@@ -2721,6 +2756,11 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
                                   compact
                                   aboveInk={drawEnabled && toolMode !== 'laser'}
                                   lang={lang}
+                                  onOpenDashboard={(() => {
+                                    if (!onOpenDashboardTarget || !activeBuiltinSlide) return undefined;
+                                    const target = getExampleDashboardTarget(activeBuiltinSlide.id, exIdx);
+                                    return target ? () => onOpenDashboardTarget(target) : undefined;
+                                  })()}
                                 />
                               </div>
                             </div>
@@ -2816,34 +2856,42 @@ function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckPr
                           hintTh={activeLoc?.embedHint}
                           aboveInk={drawEnabled && toolMode !== 'laser'}
                           lang={lang}
+                          onOpenDashboard={(() => {
+                            if (!onOpenDashboardTarget) return undefined;
+                            const target = getConceptDashboardTarget(activeBuiltinSlide.embed3D);
+                            return target ? () => onOpenDashboardTarget(target) : undefined;
+                          })()}
                         />
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Transparent Ink / Apple Pencil Overlay (pinned inside scrollable slide body) */}
-                <AnnotationCanvas
-                  key={storageDeckId}
-                  strokes={currentStrokes}
-                  drawEnabled={drawEnabled}
-                  pencilOnly={pencilOnly}
-                  penColor={penColor}
-                  penWidth={penWidth}
-                  eraserSize={eraserSize}
-                  eraserMode={eraserMode}
-                  toolMode={toolMode}
-                  selectionShape={selectionShape}
-                  laserStyle={laserStyle}
-                  zoom={zoom}
-                  lang={lang}
-                  selectTrigger={selectTrigger}
-                  onAddStroke={handleAddStroke}
-                  onEraseStrokes={handleEraseStrokes}
-                  onReplaceStrokes={handleReplaceStrokes}
-                  onCopyStrokes={handleCopyStrokes}
-                />
                 </div>
+              </div>
+
+              {/* Transparent Ink / Apple Pencil Overlay (covers Header + Body seamlessly) */}
+              <AnnotationCanvas
+                key={storageDeckId}
+                strokes={currentStrokes}
+                drawEnabled={drawEnabled}
+                pencilOnly={pencilOnly}
+                penColor={penColor}
+                penWidth={penWidth}
+                eraserSize={eraserSize}
+                eraserMode={eraserMode}
+                toolMode={toolMode}
+                selectionShape={selectionShape}
+                laserStyle={laserStyle}
+                zoom={zoom}
+                headerHeight={slideHeaderHeight}
+                lang={lang}
+                selectTrigger={selectTrigger}
+                onAddStroke={handleAddStroke}
+                onEraseStrokes={handleEraseStrokes}
+                onReplaceStrokes={handleReplaceStrokes}
+                onCopyStrokes={handleCopyStrokes}
+              />
               </div>
 
               {/* Inside-Slide Faculty Credit Footer (matches PDF export on every page) */}

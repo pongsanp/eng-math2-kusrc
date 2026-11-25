@@ -1,3 +1,18 @@
+import type {
+  ArithmeticState,
+  CoordsVecState,
+  CrossTripleState,
+  DotProjState,
+  Lines3DState,
+} from '../types';
+
+export type Ch1DashboardTarget =
+  | { tab: 'coords_vec'; patch?: Partial<CoordsVecState> }
+  | { tab: 'arithmetic'; patch?: Partial<ArithmeticState> }
+  | { tab: 'dot_proj'; patch?: Partial<DotProjState> }
+  | { tab: 'cross_triple'; patch?: Partial<CrossTripleState> }
+  | { tab: 'lines3d'; patch?: Partial<Lines3DState> };
+
 export type SlideEmbed3DKind =
   | 'plot_point'
   | 'arithmetic'
@@ -1853,4 +1868,165 @@ export function getLocalizedSlide(slide: SlideDef, lang: 'th' | 'en') {
       displaySceneHint: isEn ? (ex.scene3D?.hintEn ?? ex.scene3D?.hintTh) : ex.scene3D?.hintTh,
     })),
   };
+}
+
+export function getConceptDashboardTarget(embed?: SlideEmbed3DKind): Ch1DashboardTarget | null {
+  switch (embed) {
+    case 'plot_point':
+      return {
+        tab: 'coords_vec',
+        patch: { subMode: 'single_point', plotStep: 3, p1: [2, 3, 2], showCoordBox: true },
+      };
+    case 'arithmetic':
+      return {
+        tab: 'arithmetic',
+        patch: {
+          operation: 'add',
+          u: [2, 0.5, 1],
+          v: [0.5, 2.5, 1.5],
+          slideProgress: 1,
+          showParallelogram: true,
+        },
+      };
+    case 'dir_angles':
+      return {
+        tab: 'dot_proj',
+        patch: { subMode: 'dir_angles', u: [2, 2, 1.5], showAngleArc: true },
+      };
+    case 'projection':
+      return {
+        tab: 'dot_proj',
+        patch: { subMode: 'dot_proj', u: [2, 3, 2], v: [3, 1, 0], showProjection: true, showAngleArc: true },
+      };
+    case 'cross':
+      return {
+        tab: 'cross_triple',
+        patch: { subMode: 'cross', u: [2, 1, 0], v: [0, 2, 1.5], reverseOrder: false, showAreaOrVolume: true },
+      };
+    case 'triple':
+      return {
+        tab: 'cross_triple',
+        patch: {
+          subMode: 'triple',
+          u: [2, 1, 0],
+          v: [0, 2, 1.5],
+          w: [0.5, 0.5, 2.5],
+          showAreaOrVolume: true,
+        },
+      };
+    case 'line3d':
+      return {
+        tab: 'lines3d',
+        patch: { inputMode: 'point_dir', p0: [1, -1, 2], dir: [1, 2, -1], t: 1 },
+      };
+    default:
+      return null;
+  }
+}
+
+export function getExampleDashboardTarget(
+  slideId: number,
+  exampleIdx: number,
+): Ch1DashboardTarget | null {
+  switch (slideId) {
+    case 6:
+      return {
+        tab: 'coords_vec',
+        patch: { subMode: 'vector', p1: [1, 2, 3], p2: [4, -2, 1], showPositionVec: true, showUnitVec: false },
+      };
+    case 10:
+      return exampleIdx === 1
+        ? {
+            tab: 'arithmetic',
+            patch: { operation: 'scalar', u: [-2, 3, 1], scalarK: -3 },
+          }
+        : {
+            tab: 'coords_vec',
+            patch: { subMode: 'vector', p1: [0, 0, 0], p2: [2, -2, 1], showPositionVec: true, showUnitVec: false },
+          };
+    case 12:
+      return {
+        tab: 'coords_vec',
+        patch: { subMode: 'vector', p1: [0, 0, 0], p2: [1, -4, 2], showPositionVec: true, showUnitVec: true },
+      };
+    case 15:
+      return exampleIdx === 1
+        ? {
+            tab: 'dot_proj',
+            patch: { subMode: 'dot_proj', u: [2, 2, -1], v: [5, -4, 2], showProjection: false, showAngleArc: true },
+          }
+        : {
+            tab: 'dot_proj',
+            patch: { subMode: 'dot_proj', u: [-1, 2, 1], v: [-2, 1, -1], showProjection: false, showAngleArc: true },
+          };
+    case 18:
+      return {
+        tab: 'dot_proj',
+        patch: { subMode: 'dir_angles', u: [1, 1.4142, 1], showAngleArc: true },
+      };
+    case 20:
+      return {
+        tab: 'dot_proj',
+        patch: { subMode: 'dot_proj', u: [2, 3, -1], v: [-1, 1, -2], showProjection: true, showAngleArc: true },
+      };
+    case 23:
+      return {
+        tab: 'cross_triple',
+        patch: { subMode: 'cross', u: [2, -1, 3], v: [-4, 2, 1], reverseOrder: false, showAreaOrVolume: true },
+      };
+    case 24:
+      return {
+        tab: 'cross_triple',
+        patch: { subMode: 'cross', u: [1, -2, 2], v: [2, -1, -2], reverseOrder: false, showAreaOrVolume: false },
+      };
+    case 26:
+      return {
+        tab: 'cross_triple',
+        patch: { subMode: 'cross', u: [-2, -1, 2], v: [2, -2, 3], reverseOrder: false, showAreaOrVolume: true },
+      };
+    case 29:
+      return {
+        tab: 'cross_triple',
+        patch: {
+          subMode: 'triple',
+          u: [2, -1, 3],
+          v: [3, -2, -5],
+          w: [-1, 4, -4],
+          showAreaOrVolume: true,
+        },
+      };
+    case 32:
+      return {
+        tab: 'lines3d',
+        patch: { inputMode: 'point_dir', p0: [1, -3, 2], dir: [2, 5, 1], t: 1 },
+      };
+    case 33:
+      return exampleIdx === 1
+        ? {
+            tab: 'lines3d',
+            patch: { inputMode: 'two_points', p0: [-2, 1, 6], p2: [1, -1, -8], t: 0.5 },
+          }
+        : {
+            tab: 'lines3d',
+            patch: { inputMode: 'point_dir', p0: [2, 1, -4], dir: [-3, -7, 5], t: 1 },
+          };
+    case 34:
+      return exampleIdx === 1
+        ? {
+            tab: 'dot_proj',
+            patch: {
+              subMode: 'dot_proj',
+              u: [1, 1.4142, 1],
+              v: [1.4142, 0, 1.4142],
+              showProjection: false,
+              showAngleArc: true,
+            },
+          }
+        : {
+            tab: 'lines3d',
+            patch: { inputMode: 'point_dir', p0: [2, 1, -4], dir: [4, 7, 1], t: 1 },
+          };
+    default:
+      return null;
+  }
 }

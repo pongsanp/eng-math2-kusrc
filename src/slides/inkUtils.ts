@@ -200,11 +200,96 @@ export function detectInAppBrowser(userAgent?: string, lang: SlideLang = 'th'): 
   return { isInApp: false, appName: null };
 }
 
+export const LASER_HOLD_MS = 900;
+export const LASER_FADE_MS = 600;
+
+export function drawLaserStrokePath(
+  ctx: CanvasRenderingContext2D,
+  pts: Array<[number, number]>,
+  w: number,
+  h: number,
+  dpr: number,
+  alpha: number,
+  offsetY = 0,
+): void {
+  if (pts.length === 0 || alpha <= 0) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const toY = (ny: number) => ny * h + offsetY;
+  const trace = () => {
+    ctx.beginPath();
+    if (pts.length === 1) {
+      ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
+      ctx.lineTo(pts[0][0] * w + 0.01, toY(pts[0][1]) + 0.01);
+      return;
+    }
+    ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
+    for (let i = 1; i < pts.length - 1; i++) {
+      const midX = ((pts[i][0] + pts[i + 1][0]) / 2) * w;
+      const midY = toY((pts[i][1] + pts[i + 1][1]) / 2);
+      ctx.quadraticCurveTo(pts[i][0] * w, toY(pts[i][1]), midX, midY);
+    }
+    const last = pts[pts.length - 1];
+    ctx.lineTo(last[0] * w, toY(last[1]));
+  };
+
+  ctx.strokeStyle = `rgba(239, 68, 68, ${(0.35 * alpha).toFixed(3)})`;
+  ctx.lineWidth = 14 * dpr;
+  trace();
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(239, 68, 68, ${(0.92 * alpha).toFixed(3)})`;
+  ctx.lineWidth = 6 * dpr;
+  trace();
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(255, 255, 255, ${(0.9 * alpha).toFixed(3)})`;
+  ctx.lineWidth = 2.4 * dpr;
+  trace();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+export function drawLaserTip(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  dpr: number,
+): void {
+  const haloRadius = 22 * dpr;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloRadius);
+  grad.addColorStop(0, 'rgba(239, 68, 68, 0.55)');
+  grad.addColorStop(0.55, 'rgba(239, 68, 68, 0.22)');
+  grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, haloRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ef4444';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 8.5 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3.8 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export interface InkStroke {
   color: string;
   width: number;
   isEraser?: boolean;
-  points: Array<[number, number]>; // normalized [0..1, 0..1]
+  points: Array<[number, number]>; // normalized: x in [0..1], y in [-headerRatio..1] (0..1 = body)
+}
+
+export interface RenderedInkExport {
+  dataUrl: string;
+  topExtendRatio: number;
 }
 
 export function drawStrokeOnContext(
@@ -213,6 +298,7 @@ export function drawStrokeOnContext(
   w: number,
   h: number,
   scale: number,
+  offsetY = 0,
 ): void {
   if (st.points.length === 0) return;
   ctx.save();
@@ -229,20 +315,21 @@ export function drawStrokeOnContext(
   }
 
   const pts = st.points;
+  const toY = (ny: number) => ny * h + offsetY;
   ctx.beginPath();
   if (pts.length === 1) {
-    ctx.arc(pts[0][0] * w, pts[0][1] * h, ctx.lineWidth / 2, 0, Math.PI * 2);
+    ctx.arc(pts[0][0] * w, toY(pts[0][1]), ctx.lineWidth / 2, 0, Math.PI * 2);
     ctx.fillStyle = st.isEraser ? 'rgba(0,0,0,1)' : st.color;
     ctx.fill();
   } else {
-    ctx.moveTo(pts[0][0] * w, pts[0][1] * h);
+    ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
     for (let i = 1; i < pts.length - 1; i++) {
       const midX = ((pts[i][0] + pts[i + 1][0]) / 2) * w;
-      const midY = ((pts[i][1] + pts[i + 1][1]) / 2) * h;
-      ctx.quadraticCurveTo(pts[i][0] * w, pts[i][1] * h, midX, midY);
+      const midY = toY((pts[i][1] + pts[i + 1][1]) / 2);
+      ctx.quadraticCurveTo(pts[i][0] * w, toY(pts[i][1]), midX, midY);
     }
     const last = pts[pts.length - 1];
-    ctx.lineTo(last[0] * w, last[1] * h);
+    ctx.lineTo(last[0] * w, toY(last[1]));
     ctx.stroke();
   }
   ctx.restore();
@@ -253,18 +340,39 @@ export function renderStrokesToDataUrl(
   width = 1920,
   height = 1080,
 ): string {
-  if (strokes.length === 0) return '';
+  return renderStrokesForExport(strokes, width, height).dataUrl;
+}
+
+export function renderStrokesForExport(
+  strokes: InkStroke[],
+  width = 1920,
+  bodyHeight = 1080,
+): RenderedInkExport {
+  if (strokes.length === 0) return { dataUrl: '', topExtendRatio: 0 };
+  let minY = 0;
+  for (const st of strokes) {
+    if (st.isEraser) continue;
+    for (const pt of st.points) {
+      if (pt[1] < minY) minY = pt[1];
+    }
+  }
+  const topExtendRatio = minY < -0.002 ? Math.min(0.45, Math.max(0.05, -minY + 0.03)) : 0;
+  const extraTopPx = Math.round(topExtendRatio * bodyHeight);
+
   const offscreen = document.createElement('canvas');
   offscreen.width = width;
-  offscreen.height = height;
+  offscreen.height = bodyHeight + extraTopPx;
   const ctx = offscreen.getContext('2d');
-  if (!ctx) return '';
+  if (!ctx) return { dataUrl: '', topExtendRatio: 0 };
 
   const scale = width / 1160;
   for (const st of strokes) {
-    drawStrokeOnContext(ctx, st, width, height, scale);
+    drawStrokeOnContext(ctx, st, width, bodyHeight, scale, extraTopPx);
   }
-  return offscreen.toDataURL('image/png');
+  return {
+    dataUrl: offscreen.toDataURL('image/png'),
+    topExtendRatio: extraTopPx / bodyHeight,
+  };
 }
 
 export function computeStrokesBBox(strokes: InkStroke[]): SlideBBox | null {
@@ -347,10 +455,11 @@ export function clampDeltaToBBox(
   dx: number,
   dy: number,
   margin = 0.005,
+  minY = 0,
 ): { dx: number; dy: number } {
   const minDx = margin - bbox.minX;
   const maxDx = 1 - margin - bbox.maxX;
-  const minDy = margin - bbox.minY;
+  const minDy = minY + margin - bbox.minY;
   const maxDy = 1 - margin - bbox.maxY;
   return {
     dx: minDx <= maxDx ? Math.max(minDx, Math.min(maxDx, dx)) : 0,
@@ -358,12 +467,17 @@ export function clampDeltaToBBox(
   };
 }
 
-export function translateStroke(stroke: InkStroke, dx: number, dy: number): InkStroke {
+export function translateStroke(
+  stroke: InkStroke,
+  dx: number,
+  dy: number,
+  minY = -0.5,
+): InkStroke {
   return {
     ...stroke,
     points: stroke.points.map(([x, y]) => [
       Math.max(0, Math.min(1, x + dx)),
-      Math.max(0, Math.min(1, y + dy)),
+      Math.max(minY, Math.min(1, y + dy)),
     ]),
   };
 }
@@ -372,20 +486,22 @@ export function cloneStrokesWithOffset(
   strokes: InkStroke[],
   offsetX = 0.03,
   offsetY = 0.03,
+  minY = 0,
 ): InkStroke[] {
   const clean = strokes.filter((s) => !s.isEraser && s.points.length > 0);
   if (clean.length === 0) return [];
   const bbox = computeStrokesBBox(clean);
+  const effMinY = bbox ? Math.min(minY, bbox.minY - 0.005) : minY;
   let dx = offsetX;
   let dy = offsetY;
   if (bbox) {
     if (bbox.maxX + dx > 0.97 && bbox.minX > 0.05) dx = -offsetX;
-    if (bbox.maxY + dy > 0.97 && bbox.minY > 0.05) dy = -offsetY;
-    const clamped = clampDeltaToBBox(bbox, dx, dy, 0.01);
+    if (bbox.maxY + dy > 0.97 && bbox.minY > effMinY + 0.05) dy = -offsetY;
+    const clamped = clampDeltaToBBox(bbox, dx, dy, 0.01, effMinY);
     dx = clamped.dx;
     dy = clamped.dy;
   }
-  return clean.map((st) => translateStroke(st, dx, dy));
+  return clean.map((st) => translateStroke(st, dx, dy, effMinY));
 }
 
 export type OrderedDeckEntry<T extends { id: number; lecture: 1 | 2 }> =

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
+  LASER_FADE_MS,
+  LASER_HOLD_MS,
   clampDeltaToBBox,
   cloneStrokesWithOffset,
   computeStrokesBBox,
   doesSegmentHitStroke,
   doesStrokeMatchSelection,
+  drawLaserStrokePath,
+  drawLaserTip,
   drawStrokeOnContext,
   isStylusTouch,
   translateStroke,
@@ -31,63 +35,13 @@ interface AnnotationCanvasProps {
   selectionShape?: SelectionShape;
   laserStyle: LaserStyle;
   zoom?: number;
+  headerHeight?: number;
   lang?: 'th' | 'en';
   selectTrigger?: { indices: number[]; seq: number } | null;
   onAddStroke: (stroke: InkStroke) => void;
   onEraseStrokes?: (remainingStrokes: InkStroke[]) => void;
   onReplaceStrokes?: (nextStrokes: InkStroke[]) => void;
   onCopyStrokes?: (copied: InkStroke[]) => void;
-}
-
-const LASER_HOLD_MS = 900;
-const LASER_FADE_MS = 600;
-
-function drawLaserStrokePath(
-  ctx: CanvasRenderingContext2D,
-  pts: Array<[number, number]>,
-  w: number,
-  h: number,
-  dpr: number,
-  alpha: number,
-): void {
-  if (pts.length === 0 || alpha <= 0) return;
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  const trace = () => {
-    ctx.beginPath();
-    if (pts.length === 1) {
-      ctx.moveTo(pts[0][0] * w, pts[0][1] * h);
-      ctx.lineTo(pts[0][0] * w + 0.01, pts[0][1] * h + 0.01);
-      return;
-    }
-    ctx.moveTo(pts[0][0] * w, pts[0][1] * h);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const midX = ((pts[i][0] + pts[i + 1][0]) / 2) * w;
-      const midY = ((pts[i][1] + pts[i + 1][1]) / 2) * h;
-      ctx.quadraticCurveTo(pts[i][0] * w, pts[i][1] * h, midX, midY);
-    }
-    const last = pts[pts.length - 1];
-    ctx.lineTo(last[0] * w, last[1] * h);
-  };
-
-  ctx.strokeStyle = `rgba(239, 68, 68, ${(0.35 * alpha).toFixed(3)})`;
-  ctx.lineWidth = 14 * dpr;
-  trace();
-  ctx.stroke();
-
-  ctx.strokeStyle = `rgba(239, 68, 68, ${(0.92 * alpha).toFixed(3)})`;
-  ctx.lineWidth = 6 * dpr;
-  trace();
-  ctx.stroke();
-
-  ctx.strokeStyle = `rgba(255, 255, 255, ${(0.9 * alpha).toFixed(3)})`;
-  ctx.lineWidth = 2.4 * dpr;
-  trace();
-  ctx.stroke();
-
-  ctx.restore();
 }
 
 function getCanvasScale(canvas: HTMLCanvasElement): number {
@@ -107,6 +61,7 @@ export function AnnotationCanvas({
   selectionShape = 'lasso',
   laserStyle,
   zoom = 1,
+  headerHeight = 0,
   lang = 'th',
   selectTrigger = null,
   onAddStroke,
@@ -176,6 +131,19 @@ export function AnnotationCanvas({
   const laserActiveTipRef = useRef<{ x: number; y: number } | null>(null);
   const laserRafRef = useRef<number | null>(null);
 
+  const getStageLayout = useCallback(
+    (el?: HTMLCanvasElement | null) => {
+      const target = el ?? canvasRef.current;
+      const totalH = Math.max(100, target?.parentElement?.clientHeight || target?.clientHeight || 686);
+      const safeHeaderH = Math.min(totalH * 0.45, Math.max(0, headerHeight));
+      const headerFrac = safeHeaderH / totalH;
+      const bodyFrac = Math.max(0.1, 1 - headerFrac);
+      const minNormY = headerFrac > 0 ? -headerFrac / bodyFrac : 0;
+      return { headerFrac, bodyFrac, minNormY };
+    },
+    [headerHeight],
+  );
+
   const redrawAll = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -185,6 +153,9 @@ export function AnnotationCanvas({
     const w = canvas.width;
     const h = canvas.height;
     const scale = getCanvasScale(canvas);
+    const { headerFrac, bodyFrac, minNormY } = getStageLayout(canvas);
+    const bodyH = h * bodyFrac;
+    const offsetY = h * headerFrac;
     ctx.clearRect(0, 0, w, h);
 
     const drag = dragStateRef.current;
@@ -193,15 +164,22 @@ export function AnnotationCanvas({
     for (let i = 0; i < strokes.length; i++) {
       const st = strokes[i];
       if (drag && selSet && selSet.has(i)) {
-        drawStrokeOnContext(ctx, translateStroke(st, drag.curDx, drag.curDy), w, h, scale);
+        drawStrokeOnContext(
+          ctx,
+          translateStroke(st, drag.curDx, drag.curDy, minNormY),
+          w,
+          bodyH,
+          scale,
+          offsetY,
+        );
       } else {
-        drawStrokeOnContext(ctx, st, w, h, scale);
+        drawStrokeOnContext(ctx, st, w, bodyH, scale, offsetY);
       }
     }
     if (activeStrokeRef.current) {
-      drawStrokeOnContext(ctx, activeStrokeRef.current, w, h, scale);
+      drawStrokeOnContext(ctx, activeStrokeRef.current, w, bodyH, scale, offsetY);
     }
-  }, [strokes]);
+  }, [getStageLayout, strokes]);
 
   const drawSelectionOverlay = useCallback(() => {
     const overlay = laserCanvasRef.current;
@@ -212,6 +190,8 @@ export function AnnotationCanvas({
     const w = overlay.width;
     const h = overlay.height;
     const scale = getCanvasScale(overlay);
+    const { headerFrac, bodyFrac } = getStageLayout(overlay);
+    const toCanvasY = (ny: number) => (ny * bodyFrac + headerFrac) * h;
     ctx.clearRect(0, 0, w, h);
 
     if (!drawEnabled) return;
@@ -227,16 +207,16 @@ export function AnnotationCanvas({
         const p0 = draft[0];
         const p1 = draft[draft.length - 1];
         const rx = Math.min(p0[0], p1[0]) * w;
-        const ry = Math.min(p0[1], p1[1]) * h;
+        const ry = toCanvasY(Math.min(p0[1], p1[1]));
         const rw = Math.abs(p1[0] - p0[0]) * w;
-        const rh = Math.abs(p1[1] - p0[1]) * h;
+        const rh = Math.abs(p1[1] - p0[1]) * bodyFrac * h;
         ctx.fillRect(rx, ry, rw, rh);
         ctx.strokeRect(rx, ry, rw, rh);
       } else if (draft.length >= 2) {
         ctx.beginPath();
-        ctx.moveTo(draft[0][0] * w, draft[0][1] * h);
+        ctx.moveTo(draft[0][0] * w, toCanvasY(draft[0][1]));
         for (let i = 1; i < draft.length; i++) {
-          ctx.lineTo(draft[i][0] * w, draft[i][1] * h);
+          ctx.lineTo(draft[i][0] * w, toCanvasY(draft[i][1]));
         }
         ctx.closePath();
         ctx.fill();
@@ -256,9 +236,9 @@ export function AnnotationCanvas({
     const padX = 8 * scale;
     const padY = 8 * scale;
     const x1 = (bbox.minX + dx) * w - padX;
-    const y1 = (bbox.minY + dy) * h - padY;
+    const y1 = toCanvasY(bbox.minY + dy) - padY;
     const bw = Math.max(12 * scale, (bbox.maxX - bbox.minX) * w + padX * 2);
-    const bh = Math.max(12 * scale, (bbox.maxY - bbox.minY) * h + padY * 2);
+    const bh = Math.max(12 * scale, (bbox.maxY - bbox.minY) * bodyFrac * h + padY * 2);
 
     ctx.save();
     ctx.fillStyle = 'rgba(14, 165, 233, 0.06)';
@@ -285,7 +265,7 @@ export function AnnotationCanvas({
       ctx.strokeRect(cx - hs / 2, cy - hs / 2, hs, hs);
     }
     ctx.restore();
-  }, [drawEnabled, selectedIndices, selectionShape, toolMode]);
+  }, [drawEnabled, getStageLayout, selectedIndices, selectionShape, toolMode]);
 
   const ensureLaserLoop = useCallback(() => {
     if (laserRafRef.current !== null) return;
@@ -305,6 +285,9 @@ export function AnnotationCanvas({
       const w = laserCanvas.width;
       const h = laserCanvas.height;
       const dpr = getCanvasScale(laserCanvas);
+      const { headerFrac, bodyFrac } = getStageLayout(laserCanvas);
+      const bodyH = h * bodyFrac;
+      const offsetY = h * headerFrac;
       const now = performance.now();
 
       ctx.clearRect(0, 0, w, h);
@@ -330,33 +313,13 @@ export function AnnotationCanvas({
 
       if (groupAlpha > 0) {
         for (const strokePts of laserStrokesRef.current) {
-          drawLaserStrokePath(ctx, strokePts, w, h, dpr, groupAlpha);
+          drawLaserStrokePath(ctx, strokePts, w, bodyH, dpr, groupAlpha, offsetY);
         }
       }
 
       const tip = laserActiveTipRef.current;
       if (tip) {
-        const cx = tip.x * w;
-        const cy = tip.y * h;
-        const haloRadius = 22 * dpr;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloRadius);
-        grad.addColorStop(0, 'rgba(239, 68, 68, 0.55)');
-        grad.addColorStop(0.55, 'rgba(239, 68, 68, 0.22)');
-        grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(cx, cy, haloRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(cx, cy, 8.5 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(cx, cy, 3.8 * dpr, 0, Math.PI * 2);
-        ctx.fill();
+        drawLaserTip(ctx, tip.x * w, (tip.y * bodyFrac + headerFrac) * h, dpr);
       }
 
       if (tip !== null || laserStrokesRef.current.length > 0) {
@@ -367,7 +330,7 @@ export function AnnotationCanvas({
     }
 
     laserRafRef.current = window.requestAnimationFrame(tickLaser);
-  }, []);
+  }, [getStageLayout]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -494,9 +457,16 @@ export function AnnotationCanvas({
     };
   }, [drawEnabled, drawSelectionOverlay, pencilOnly, redrawAll]);
 
-  const toNormFromClient = (clientX: number, clientY: number, rect: DOMRect): [number, number] => {
+  const toNormFromClient = (
+    clientX: number,
+    clientY: number,
+    rect: DOMRect,
+    layout = getStageLayout(),
+  ): [number, number] => {
     const x = Math.max(0, Math.min(1, (clientX - rect.left) / (rect.width || 1)));
-    const y = Math.max(0, Math.min(1, (clientY - rect.top) / (rect.height || 1)));
+    const fracY = (clientY - rect.top) / (rect.height || 1);
+    const rawY = (fracY - layout.headerFrac) / layout.bodyFrac;
+    const y = Math.max(layout.minNormY, Math.min(1, rawY));
     return [x, y];
   };
 
@@ -523,7 +493,8 @@ export function AnnotationCanvas({
       .map((idx) => cur[idx])
       .filter((st): st is InkStroke => Boolean(st && !st.isEraser));
     if (chosen.length === 0) return;
-    const clones = cloneStrokesWithOffset(chosen, 0.03, 0.03);
+    const { minNormY } = getStageLayout();
+    const clones = cloneStrokesWithOffset(chosen, 0.03, 0.03, minNormY);
     const startIdx = cur.length;
     const next = [...cur, ...clones];
     const nextIndices = clones.map((_, i) => startIdx + i);
@@ -554,7 +525,8 @@ export function AnnotationCanvas({
     }
 
     const rect = canvas.getBoundingClientRect();
-    const pt = toNormFromClient(e.clientX, e.clientY, rect);
+    const layout = getStageLayout(canvas);
+    const pt = toNormFromClient(e.clientX, e.clientY, rect, layout);
     activePointerIdRef.current = e.pointerId;
     activePointerTypeRef.current = e.pointerType;
 
@@ -577,7 +549,7 @@ export function AnnotationCanvas({
         const chosen = curSelected.map((idx) => strokesLatestRef.current[idx]).filter(Boolean);
         const bbox = computeStrokesBBox(chosen);
         const padX = 12 / (canvas.clientWidth || 1280);
-        const padY = 12 / (canvas.clientHeight || 720);
+        const padY = 12 / ((canvas.clientHeight || 686) * layout.bodyFrac);
         if (
           bbox &&
           pt[0] >= bbox.minX - padX &&
@@ -607,7 +579,7 @@ export function AnnotationCanvas({
       lastEraserPtRef.current = pt;
       const radiusPx = (eraserSize * 4.5) / 2;
       const stageW = canvas.clientWidth || 1280;
-      const stageH = canvas.clientHeight || 600;
+      const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
       const cur = strokesLatestRef.current;
       const next = cur.filter(
         (st) => !doesSegmentHitStroke(pt, pt, st, radiusPx, stageW, stageH),
@@ -630,7 +602,14 @@ export function AnnotationCanvas({
     // Draw initial dot immediately without redrawing prior strokes
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      drawStrokeOnContext(ctx, stroke, canvas.width, canvas.height, getCanvasScale(canvas));
+      drawStrokeOnContext(
+        ctx,
+        stroke,
+        canvas.width,
+        canvas.height * layout.bodyFrac,
+        getCanvasScale(canvas),
+        canvas.height * layout.headerFrac,
+      );
     }
   };
 
@@ -638,13 +617,14 @@ export function AnnotationCanvas({
     if (!drawEnabled) return;
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
+    const layout = getStageLayout(canvas);
     const nativeEvt = e.nativeEvent as PointerEvent;
 
     if (toolMode === 'laser') {
       // Hovering Apple Pencil above screen updates the glowing laser dot
       if (activePointerIdRef.current === null) {
         if (e.pointerType === 'pen') {
-          const hoverPt = toNormFromClient(e.clientX, e.clientY, rect);
+          const hoverPt = toNormFromClient(e.clientX, e.clientY, rect, layout);
           laserActiveTipRef.current = { x: hoverPt[0], y: hoverPt[1] };
           ensureLaserLoop();
         }
@@ -659,7 +639,7 @@ export function AnnotationCanvas({
       const samples = coalesced.length > 0 ? coalesced : [nativeEvt];
 
       for (const sample of samples) {
-        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect, layout);
         laserActiveTipRef.current = { x: nextPt[0], y: nextPt[1] };
         if (laserStyle === 'trail' && activeLaserStrokeRef.current) {
           const pts = activeLaserStrokeRef.current;
@@ -676,7 +656,7 @@ export function AnnotationCanvas({
     if (toolMode === 'select') {
       if (activePointerIdRef.current !== e.pointerId) return;
       e.preventDefault();
-      const pt = toNormFromClient(e.clientX, e.clientY, rect);
+      const pt = toNormFromClient(e.clientX, e.clientY, rect, layout);
 
       const drag = dragStateRef.current;
       if (drag) {
@@ -684,6 +664,8 @@ export function AnnotationCanvas({
           drag.baseBBox,
           pt[0] - drag.startPt[0],
           pt[1] - drag.startPt[1],
+          0.005,
+          layout.minNormY,
         );
         drag.curDx = clamped.dx;
         drag.curDy = clamped.dy;
@@ -719,13 +701,13 @@ export function AnnotationCanvas({
       const samples = coalesced.length > 0 ? coalesced : [nativeEvt];
       const radiusPx = (eraserSize * 4.5) / 2;
       const stageW = canvas.clientWidth || 1280;
-      const stageH = canvas.clientHeight || 600;
+      const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
       let prevPt = lastEraserPtRef.current;
       let cur = strokesLatestRef.current;
       let changed = false;
 
       for (const sample of samples) {
-        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect, layout);
         const filtered = cur.filter(
           (st) => !doesSegmentHitStroke(prevPt, nextPt, st, radiusPx, stageW, stageH),
         );
@@ -758,6 +740,8 @@ export function AnnotationCanvas({
     const pts = stroke.points;
     const w = canvas.width;
     const h = canvas.height;
+    const bodyH = h * layout.bodyFrac;
+    const offsetY = h * layout.headerFrac;
     const scale = getCanvasScale(canvas);
 
     if (ctx) {
@@ -775,15 +759,15 @@ export function AnnotationCanvas({
       }
       ctx.beginPath();
       const startPt = pts[pts.length - 1];
-      ctx.moveTo(startPt[0] * w, startPt[1] * h);
+      ctx.moveTo(startPt[0] * w, startPt[1] * bodyH + offsetY);
 
       let added = false;
       for (const sample of samples) {
-        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect, layout);
         const prev = pts[pts.length - 1];
         if (Math.hypot(nextPt[0] - prev[0], nextPt[1] - prev[1]) >= 0.0005) {
           pts.push(nextPt);
-          ctx.lineTo(nextPt[0] * w, nextPt[1] * h);
+          ctx.lineTo(nextPt[0] * w, nextPt[1] * bodyH + offsetY);
           added = true;
         }
       }
@@ -793,7 +777,7 @@ export function AnnotationCanvas({
       ctx.restore();
     } else {
       for (const sample of samples) {
-        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect);
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect, layout);
         const prev = pts[pts.length - 1];
         if (Math.hypot(nextPt[0] - prev[0], nextPt[1] - prev[1]) >= 0.0005) {
           pts.push(nextPt);
@@ -810,6 +794,7 @@ export function AnnotationCanvas({
       // ignore if capture was already released
     }
     const canvas = e.currentTarget;
+    const layout = getStageLayout(canvas);
     activePointerIdRef.current = null;
     activePointerTypeRef.current = null;
     lastEraserPtRef.current = null;
@@ -833,7 +818,7 @@ export function AnnotationCanvas({
         if (Math.hypot(curDx, curDy) > 0.001) {
           const selSet = new Set(selectedIndicesRef.current);
           const next = strokesLatestRef.current.map((st, idx) =>
-            selSet.has(idx) ? translateStroke(st, curDx, curDy) : st,
+            selSet.has(idx) ? translateStroke(st, curDx, curDy, layout.minNormY) : st,
           );
           onReplaceStrokes?.(next);
         } else {
@@ -855,7 +840,7 @@ export function AnnotationCanvas({
         if (selectionShape === 'rect' && span < 0.008) {
           // Single tap inside select mode: pick top-most stroke under tap
           const stageW = canvas.clientWidth || 1280;
-          const stageH = canvas.clientHeight || 720;
+          const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
           for (let i = cur.length - 1; i >= 0; i--) {
             if (!cur[i].isEraser && doesSegmentHitStroke(p0, p0, cur[i], 14, stageW, stageH)) {
               matched = [i];
@@ -864,7 +849,7 @@ export function AnnotationCanvas({
           }
         } else if (selectionShape === 'lasso' && draft.length < 4 && span < 0.012) {
           const stageW = canvas.clientWidth || 1280;
-          const stageH = canvas.clientHeight || 720;
+          const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
           for (let i = cur.length - 1; i >= 0; i--) {
             if (!cur[i].isEraser && doesSegmentHitStroke(p0, p0, cur[i], 14, stageW, stageH)) {
               matched = [i];
@@ -899,14 +884,16 @@ export function AnnotationCanvas({
     }
   };
 
+  const approxHeaderFrac = Math.min(0.45, Math.max(0, headerHeight) / 686);
+  const approxBodyFrac = Math.max(0.1, 1 - approxHeaderFrac);
   const barCenterPct = selectedBBox
     ? Math.max(18, Math.min(82, ((selectedBBox.minX + selectedBBox.maxX) / 2) * 100))
     : 50;
   const barPlaceAbove = selectedBBox ? selectedBBox.maxY > 0.84 : false;
   const barTopPct = selectedBBox
     ? barPlaceAbove
-      ? Math.max(6, selectedBBox.minY * 100 - 7)
-      : Math.min(93, selectedBBox.maxY * 100 + 2.5)
+      ? Math.max(4, (selectedBBox.minY * approxBodyFrac + approxHeaderFrac) * 100 - 7)
+      : Math.min(93, (selectedBBox.maxY * approxBodyFrac + approxHeaderFrac) * 100 + 2.5)
     : 50;
 
   return (

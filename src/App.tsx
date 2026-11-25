@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
   Box,
+  ChevronDown,
+  ChevronUp,
   Compass,
   Crosshair,
   Eye,
   GitCommitHorizontal,
   Grid3X3,
+  GripHorizontal,
   Layers,
   Maximize2,
   Minimize2,
@@ -19,6 +23,7 @@ import {
   PanelLeftOpen,
   PlusSquare,
   Presentation,
+  RotateCcw,
   RotateCw,
   Shapes,
   Sparkles,
@@ -101,9 +106,12 @@ import { PartialsTangentPanel } from './components/panels/ch3/PartialsTangentPan
 import { GradientDirPanel } from './components/panels/ch3/GradientDirPanel';
 import { ExtremaPanel } from './components/panels/ch3/ExtremaPanel';
 import { SlidesDeck } from './components/slides/SlidesDeck';
+import { DashboardLaserOverlay } from './components/DashboardLaserOverlay';
+import type { Ch1DashboardTarget } from './slides/ch1SlidesData';
 import {
   persistSlideLang,
   resolveInitialSlideLang,
+  type LaserStyle,
   type SlideLang,
 } from './slides/inkUtils';
 
@@ -657,6 +665,84 @@ export default function App() {
     slideLang,
   ]);
 
+  const [dashboardLaser, setDashboardLaser] = useState(false);
+  const [dashboardLaserStyle, setDashboardLaserStyle] = useState<LaserStyle>('trail');
+  const [bannerCollapsed, setBannerCollapsed] = useState(false);
+  const [bannerPos, setBannerPos] = useState<{ x: number; y: number } | null>(null);
+  const sceneMainRef = useRef<HTMLElement | null>(null);
+  const bannerBoxRef = useRef<HTMLDivElement | null>(null);
+  const bannerDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
+  const clampBannerPos = useCallback((rawX: number, rawY: number) => {
+    const mainEl = sceneMainRef.current;
+    const boxEl = bannerBoxRef.current;
+    if (!mainEl || !boxEl) return { x: Math.max(8, rawX), y: Math.max(8, rawY) };
+    const maxX = Math.max(8, mainEl.clientWidth - boxEl.offsetWidth - 8);
+    const maxY = Math.max(8, mainEl.clientHeight - boxEl.offsetHeight - 8);
+    return {
+      x: Math.round(Math.max(8, Math.min(maxX, rawX))),
+      y: Math.round(Math.max(8, Math.min(maxY, rawY))),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (appView !== 'dashboard') return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setDashboardLaser((v) => !v);
+      } else if (e.key === 'Escape') {
+        setDashboardLaser(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [appView]);
+
+  useEffect(() => {
+    if (appView !== 'dashboard' || !bannerPos) return;
+    const mainEl = sceneMainRef.current;
+    const boxEl = bannerBoxRef.current;
+    if (!mainEl || !boxEl) return;
+    const syncBounds = () => {
+      setBannerPos((prev) => {
+        if (!prev) return prev;
+        const clamped = clampBannerPos(prev.x, prev.y);
+        return clamped.x === prev.x && clamped.y === prev.y ? prev : clamped;
+      });
+    };
+    const ro = new ResizeObserver(syncBounds);
+    ro.observe(mainEl);
+    ro.observe(boxEl);
+    return () => ro.disconnect();
+  }, [appView, bannerCollapsed, bannerPos, clampBannerPos]);
+
+  const handleOpenDashboardTarget = useCallback((target: Ch1DashboardTarget) => {
+    setActiveChapter('ch1');
+    setCh1Tab(target.tab);
+    if (target.tab === 'coords_vec' && target.patch) {
+      setCoordsVec((prev) => ({ ...prev, ...target.patch }));
+    } else if (target.tab === 'arithmetic' && target.patch) {
+      setArithmetic((prev) => ({ ...prev, ...target.patch }));
+    } else if (target.tab === 'dot_proj' && target.patch) {
+      setDotProj((prev) => ({ ...prev, ...target.patch }));
+    } else if (target.tab === 'cross_triple' && target.patch) {
+      setCrossTriple((prev) => ({ ...prev, ...target.patch }));
+    } else if (target.tab === 'lines3d' && target.patch) {
+      setLines3d((prev) => ({ ...prev, ...target.patch }));
+    }
+    setDashboardLaser(false);
+    setAppView('dashboard');
+  }, []);
+
   const triggerCamera = useCallback((preset: CameraPreset) => {
     setCameraCommand((prev) => ({ preset, seq: (prev?.seq ?? 0) + 1 }));
   }, []);
@@ -677,6 +763,7 @@ export default function App() {
         lang={slideLang}
         onChangeLang={handleChangeSlideLang}
         onBackToDashboard={() => setAppView('dashboard')}
+        onOpenDashboardTarget={handleOpenDashboardTarget}
       />
     );
   }
@@ -856,6 +943,30 @@ export default function App() {
 
           <button
             type="button"
+            onClick={() => setDashboardLaser((v) => !v)}
+            title={
+              isEn
+                ? 'Toggle Red Laser Pointer over 3D Viewport & Equation (Shortcut: L)'
+                : 'เปิด/ปิดเลเซอร์ชี้จุดบนกราฟ 3D และกล่องสมการ (คีย์ลัด L)'
+            }
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition ${
+              dashboardLaser
+                ? 'border-red-500 bg-red-600 text-white shadow-sm'
+                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                dashboardLaser
+                  ? 'bg-white shadow-[0_0_6px_rgba(255,255,255,0.95)]'
+                  : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.7)]'
+              }`}
+            />
+            <span>{isEn ? 'Laser' : 'เลเซอร์'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setAppView('slides')}
             title={
               isEn
@@ -969,7 +1080,7 @@ export default function App() {
         )}
 
         {/* Right 3D Interactive Canvas */}
-        <main className="relative flex-1 min-h-0 overflow-hidden">
+        <main ref={sceneMainRef} className="relative flex-1 min-h-0 overflow-hidden">
           <Scene3D
             activeChapter={activeChapter}
             ch1Tab={ch1Tab}
@@ -995,31 +1106,176 @@ export default function App() {
             onWarningChange={setSceneWarning}
           />
 
-          {/* Floating Live KaTeX Equation Banner (Top-Left) */}
+          {/* Floating Live KaTeX Equation Banner (Collapsible, Responsive Compact & Draggable) */}
           <div
-            className={`pointer-events-none absolute top-3 left-3 right-3 sm:right-auto max-w-xl transition-all ${
-              settings.presentationMode ? 'sm:max-w-2xl' : ''
+            ref={bannerBoxRef}
+            style={
+              bannerPos
+                ? { left: bannerPos.x, top: bannerPos.y }
+                : undefined
+            }
+            className={`pointer-events-none absolute z-20 ${
+              bannerPos ? '' : 'top-2.5 left-2.5 sm:top-3 sm:left-3'
+            } ${
+              bannerCollapsed
+                ? 'max-w-[calc(100%-1.25rem)]'
+                : settings.presentationMode
+                  ? 'max-w-[min(calc(100%-1.25rem),36rem)] xl:max-w-2xl'
+                  : 'max-w-[min(calc(100%-1.25rem),28rem)] sm:max-w-lg lg:max-w-xl'
             }`}
           >
-            <div className="pointer-events-auto inline-block max-w-full rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg px-4 py-2.5">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {isEn ? (
-                  <span className="text-sky-700 dark:text-sky-300">{bannerContent.titleEn}</span>
-                ) : (
-                  <>
-                    <span className="text-sky-700 dark:text-sky-300">{bannerContent.titleTh}</span>
-                    <span className="hidden sm:inline opacity-75">• {bannerContent.titleEn}</span>
-                  </>
-                )}
-              </div>
-              <div
-                className={`mt-1 overflow-x-auto overflow-y-hidden leading-normal text-slate-900 dark:text-white ${
-                  settings.presentationMode ? 'text-lg sm:text-2xl py-2' : 'text-sm sm:text-base py-1'
-                }`}
-              >
-                <KaTeX math={bannerContent.latex} />
-              </div>
-            </div>
+            {(() => {
+              const handleBannerDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+                if ((e.target as HTMLElement)?.closest('button')) return;
+                const mainEl = sceneMainRef.current;
+                const boxEl = bannerBoxRef.current;
+                if (!mainEl || !boxEl) return;
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                } catch {
+                  // ignore capture error
+                }
+                const mainRect = mainEl.getBoundingClientRect();
+                const boxRect = boxEl.getBoundingClientRect();
+                bannerDragRef.current = {
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: boxRect.left - mainRect.left,
+                  origY: boxRect.top - mainRect.top,
+                };
+              };
+
+              const handleBannerDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+                const drag = bannerDragRef.current;
+                if (!drag || drag.pointerId !== e.pointerId) return;
+                e.preventDefault();
+                setBannerPos(
+                  clampBannerPos(
+                    drag.origX + (e.clientX - drag.startX),
+                    drag.origY + (e.clientY - drag.startY),
+                  ),
+                );
+              };
+
+              const handleBannerDragEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
+                if (bannerDragRef.current?.pointerId !== e.pointerId) return;
+                bannerDragRef.current = null;
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+                } catch {
+                  // ignore
+                }
+              };
+
+              if (bannerCollapsed) {
+                return (
+                  <div
+                    onPointerDown={handleBannerDragStart}
+                    onPointerMove={handleBannerDragMove}
+                    onPointerUp={handleBannerDragEnd}
+                    onPointerCancel={handleBannerDragEnd}
+                    onDoubleClick={() => setBannerPos(null)}
+                    className="pointer-events-auto inline-flex items-center gap-1.5 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-md px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 touch-none cursor-grab active:cursor-grabbing"
+                  >
+                    <GripHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="truncate max-w-[160px] sm:max-w-[240px] text-sky-700 dark:text-sky-300">
+                      {isEn ? bannerContent.titleEn : bannerContent.titleTh}
+                    </span>
+                    {bannerPos && (
+                      <button
+                        type="button"
+                        onClick={() => setBannerPos(null)}
+                        title={isEn ? 'Reset box position' : 'รีเซ็ตตำแหน่งมุมซ้ายบน'}
+                        aria-label={isEn ? 'Reset equation box position' : 'รีเซ็ตตำแหน่งกล่องสมการ'}
+                        className="p-0.5 rounded-md text-slate-400 hover:text-sky-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setBannerCollapsed(false)}
+                      title={isEn ? 'Expand equation box' : 'กางกล่องสมการ'}
+                      aria-label={isEn ? 'Expand equation box' : 'กางกล่องสมการ'}
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-sky-50 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 hover:bg-sky-100 transition"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Formula' : 'สมการ'}</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="pointer-events-auto inline-block max-w-full rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg px-2.5 py-1.5 sm:px-3.5 sm:py-2">
+                  <div
+                    onPointerDown={handleBannerDragStart}
+                    onPointerMove={handleBannerDragMove}
+                    onPointerUp={handleBannerDragEnd}
+                    onPointerCancel={handleBannerDragEnd}
+                    onDoubleClick={() => setBannerPos(null)}
+                    title={
+                      isEn
+                        ? 'Drag to move box anywhere over 3D view (double-click to reset)'
+                        : 'ลากเพื่อย้ายตำแหน่งกล่องสมการ (ดับเบิลคลิกเพื่อกลับมุมซ้ายบน)'
+                    }
+                    className="flex items-center justify-between gap-2 text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 touch-none cursor-grab active:cursor-grabbing"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <GripHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      {isEn ? (
+                        <span className="text-sky-700 dark:text-sky-300 truncate">
+                          {bannerContent.titleEn}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-sky-700 dark:text-sky-300 truncate">
+                            {bannerContent.titleTh}
+                          </span>
+                          <span className="hidden xl:inline opacity-75 truncate">
+                            • {bannerContent.titleEn}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {bannerPos && (
+                        <button
+                          type="button"
+                          onClick={() => setBannerPos(null)}
+                          title={isEn ? 'Reset box position' : 'รีเซ็ตตำแหน่งมุมซ้ายบน'}
+                          aria-label={isEn ? 'Reset equation box position' : 'รีเซ็ตตำแหน่งกล่องสมการ'}
+                          className="p-1 rounded-lg text-slate-400 hover:text-sky-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setBannerCollapsed(true)}
+                        title={isEn ? 'Minimize equation box' : 'ยุบกล่องสมการ (กันบังรูปบนจอเล็ก)'}
+                        aria-label={isEn ? 'Minimize equation box' : 'ยุบกล่องสมการ'}
+                        className="p-1 rounded-lg text-slate-500 dark:text-slate-300 hover:text-sky-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    className={`mt-0.5 overflow-x-auto overflow-y-hidden leading-normal text-slate-900 dark:text-white ${
+                      settings.presentationMode
+                        ? 'text-base sm:text-xl lg:text-2xl py-1 sm:py-1.5'
+                        : 'text-xs sm:text-sm md:text-base py-0.5 sm:py-1'
+                    }`}
+                  >
+                    <KaTeX math={bannerContent.latex} />
+                  </div>
+                </div>
+              );
+            })()}
 
             {sceneWarning && (
               <div className="mt-2 inline-flex items-center gap-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-950/90 px-3 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 shadow-md">
@@ -1141,6 +1397,14 @@ export default function App() {
               </button>
             </div>
           </div>
+
+          <DashboardLaserOverlay
+            active={dashboardLaser}
+            laserStyle={dashboardLaserStyle}
+            onChangeStyle={setDashboardLaserStyle}
+            onClose={() => setDashboardLaser(false)}
+            lang={slideLang}
+          />
         </main>
       </div>
     </div>

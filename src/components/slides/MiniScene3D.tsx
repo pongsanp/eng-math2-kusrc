@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ArrowLeftRight, RotateCcw } from 'lucide-react';
+import { ArrowLeftRight, ExternalLink, RotateCcw } from 'lucide-react';
 import type { SlideEmbed3DKind, SlideExampleScene3D } from '../../slides/ch1SlidesData';
 import type { SlideLang } from '../../slides/inkUtils';
 import type { Vec3Tuple } from '../../types';
@@ -28,6 +28,7 @@ interface MiniScene3DProps {
   compact?: boolean;
   aboveInk?: boolean;
   lang?: SlideLang;
+  onOpenDashboard?: () => void;
 }
 
 const DEFAULT_ISO: Vec3Tuple = [8.2, 8.2, 6.2];
@@ -40,6 +41,7 @@ export function MiniScene3D({
   compact = false,
   aboveInk = false,
   lang = 'th',
+  onOpenDashboard,
 }: MiniScene3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -348,16 +350,35 @@ export function MiniScene3D({
           ref={containerRef}
           className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
         />
-        <button
-          type="button"
-          onClick={resetCam}
-          title={isEn ? 'Reset 3D camera view' : 'รีเซ็ตมุมกล้อง 3 มิติ'}
-          className={`absolute top-2 right-2 inline-flex items-center gap-1 rounded-lg bg-white/90 border border-slate-200 font-semibold text-slate-700 hover:bg-sky-50 shadow-sm ${
-            compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs sm:text-sm'
-          }`}
-        >
-          <RotateCcw className="w-3 h-3" /> {isEn ? 'Reset' : 'รีเซ็ตมุม'}
-        </button>
+        <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+          {onOpenDashboard && (
+            <button
+              type="button"
+              onClick={onOpenDashboard}
+              title={
+                isEn
+                  ? 'Open this topic & values in full 3D Dashboard'
+                  : 'เปิดหัวข้อและค่าตัวอย่างนี้ในหน้า 3D Dashboard เต็มจอ'
+              }
+              className={`inline-flex items-center gap-1 rounded-lg bg-indigo-600/95 hover:bg-indigo-700 text-white font-semibold shadow-sm transition ${
+                compact ? 'px-1.5 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs sm:text-sm'
+              }`}
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>{compact ? 'Dashboard' : isEn ? '3D Dashboard' : 'เปิดใน Dashboard'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={resetCam}
+            title={isEn ? 'Reset 3D camera view' : 'รีเซ็ตมุมกล้อง 3 มิติ'}
+            className={`inline-flex items-center gap-1 rounded-lg bg-white/90 border border-slate-200 font-semibold text-slate-700 hover:bg-sky-50 shadow-sm ${
+              compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs sm:text-sm'
+            }`}
+          >
+            <RotateCcw className="w-3 h-3" /> {isEn ? 'Reset' : 'รีเซ็ตมุม'}
+          </button>
+        </div>
         <div
           className={`pointer-events-none absolute top-2 left-2 flex items-center gap-2 rounded-lg bg-white/90 border border-slate-200/80 font-bold ${
             compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs sm:text-sm'
