@@ -86,6 +86,18 @@ type TextScale = 'normal' | 'large' | 'xlarge';
 const DECK_ID = 'ch1';
 const LEGACY_INK_STORAGE_KEY = 'eng_math_2_ch1_ink_v1';
 
+function getStorageDeckId(lang: SlideLang): string {
+  return lang === 'en' ? `${DECK_ID}_en` : DECK_ID;
+}
+
+function getLegacyInkKey(lang: SlideLang): string | undefined {
+  return lang === 'th' ? LEGACY_INK_STORAGE_KEY : undefined;
+}
+
+function getLastSlideEntryStorageKey(storageDeckId: string): string {
+  return `eng_math_2_${storageDeckId}_last_entry_id`;
+}
+
 const PEN_COLORS = [
   { color: '#0f172a', label: 'ดำ', labelEn: 'Black' },
   { color: '#dc2626', label: 'แดง', labelEn: 'Red' },
@@ -206,13 +218,12 @@ const STAGE_WIDTH = 1280;
 const STAGE_HEIGHT = 720;
 const NAV_DIR_STORAGE_KEY = 'eng_math_2_nav_dir';
 const TOOLBAR_POS_STORAGE_KEY = 'eng_math_2_toolbar_pos';
-const LAST_SLIDE_ID_STORAGE_KEY = `eng_math_2_${DECK_ID}_last_entry_id`;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
-function readSavedSlideEntryId(): number | null {
+function readSavedSlideEntryId(storageDeckId: string): number | null {
   try {
-    const raw = window.localStorage.getItem(LAST_SLIDE_ID_STORAGE_KEY);
+    const raw = window.localStorage.getItem(getLastSlideEntryStorageKey(storageDeckId));
     if (!raw) return null;
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed !== 0 ? parsed : null;
@@ -221,11 +232,21 @@ function readSavedSlideEntryId(): number | null {
   }
 }
 
-export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
+export function SlidesDeck(props: SlidesDeckProps) {
+  const storageDeckId = getStorageDeckId(props.lang);
+  // Keying by language deck cleanly isolates strokes, inserted blank pages, undo stack, and last page
+  return <SlidesDeckInner key={storageDeckId} {...props} />;
+}
+
+function SlidesDeckInner({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
   const isEn = lang === 'en';
-  const pendingRestoreIdRef = useRef<number | null>(readSavedSlideEntryId());
+  const storageDeckId = getStorageDeckId(lang);
+  const legacyInkKey = getLegacyInkKey(lang);
+  const lastEntryStorageKey = getLastSlideEntryStorageKey(storageDeckId);
+  const pendingRestoreIdRef = useRef<number | null>(readSavedSlideEntryId(storageDeckId));
+  const hydratedRef = useRef(false);
   const [slideIdx, setSlideIdx] = useState(() => {
-    const savedId = readSavedSlideEntryId();
+    const savedId = readSavedSlideEntryId(storageDeckId);
     if (savedId !== null && savedId > 0) {
       const idx = CH1_VISIBLE_SLIDES.findIndex((s) => s.id === savedId);
       if (idx >= 0) return idx;
@@ -349,7 +370,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
 
   useEffect(() => {
     let cancelled = false;
-    void loadDeckInk(DECK_ID, LEGACY_INK_STORAGE_KEY).then((loaded) => {
+    void loadDeckInk(storageDeckId, legacyInkKey).then((loaded) => {
       if (cancelled) return;
       const preHydration = strokesRef.current;
       const merged: Record<number, InkStroke[]> = { ...loaded };
@@ -357,13 +378,13 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
         const sId = Number(k);
         if (Number.isFinite(sId) && Array.isArray(preList) && preList.length > 0) {
           merged[sId] = [...(loaded[sId] ?? []), ...preList];
-          void saveSlideInk(DECK_ID, sId, merged[sId], LEGACY_INK_STORAGE_KEY);
+          void saveSlideInk(storageDeckId, sId, merged[sId], legacyInkKey);
         }
       }
       strokesRef.current = merged;
       setStrokesBySlide(merged);
     });
-    void loadCustomBlankPages(DECK_ID).then((loadedPages) => {
+    void loadCustomBlankPages(storageDeckId).then((loadedPages) => {
       if (cancelled) return;
       if (customPagesRef.current.length === 0 && loadedPages.length > 0) {
         customPagesRef.current = loadedPages;
@@ -371,6 +392,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
       }
       const pendingId = pendingRestoreIdRef.current;
       pendingRestoreIdRef.current = null;
+      hydratedRef.current = true;
       if (pendingId !== null) {
         const effectivePages =
           customPagesRef.current.length > 0 ? customPagesRef.current : loadedPages;
@@ -384,7 +406,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storageDeckId, legacyInkKey]);
 
   const orderedEntries = useMemo(
     () => buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, customPages),
@@ -404,13 +426,13 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   const fs = FONT_SCALE_MAP[textScale];
 
   useEffect(() => {
-    if (pendingRestoreIdRef.current !== null) return;
+    if (!hydratedRef.current && pendingRestoreIdRef.current !== null) return;
     try {
-      window.localStorage.setItem(LAST_SLIDE_ID_STORAGE_KEY, String(activeId));
+      window.localStorage.setItem(lastEntryStorageKey, String(activeId));
     } catch {
       // ignore storage errors
     }
-  }, [activeId]);
+  }, [activeId, lastEntryStorageKey]);
 
   useEffect(() => {
     try {
@@ -496,6 +518,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
 
   const goPrev = useCallback(() => {
     pendingRestoreIdRef.current = null;
+    hydratedRef.current = true;
     setExportMenuOpen(false);
     setColorPickerOpen(false);
     setSelectTrigger(null);
@@ -504,6 +527,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
 
   const goNext = useCallback(() => {
     pendingRestoreIdRef.current = null;
+    hydratedRef.current = true;
     setExportMenuOpen(false);
     setColorPickerOpen(false);
     setSelectTrigger(null);
@@ -566,9 +590,9 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
       const nextMap = { ...strokesRef.current, [slideId]: nextList };
       strokesRef.current = nextMap;
       setStrokesBySlide(nextMap);
-      void saveSlideInk(DECK_ID, slideId, nextList, LEGACY_INK_STORAGE_KEY);
+      void saveSlideInk(storageDeckId, slideId, nextList, legacyInkKey);
     },
-    [],
+    [storageDeckId, legacyInkKey],
   );
 
   const handlePasteClipboard = useCallback(() => {
@@ -699,14 +723,14 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
 
   const handleClearAllInk = () => {
     const confirmMsg = isEn
-      ? 'Clear all handwritten annotations across every slide?'
-      : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดทุกหน้าหรือไม่?';
+      ? 'Clear all handwritten annotations in the English version? (Thai version notes are kept separately)'
+      : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดในเวอร์ชันภาษาไทยหรือไม่? (ลายมือในเวอร์ชันภาษาอังกฤษจะถูกแยกเก็บและไม่ถูกลบ)';
     if (window.confirm(confirmMsg)) {
       undoHistoryRef.current = {};
       setUndoCountBySlide({});
       strokesRef.current = {};
       setStrokesBySlide({});
-      void clearDeckInk(DECK_ID, LEGACY_INK_STORAGE_KEY);
+      void clearDeckInk(storageDeckId, legacyInkKey);
     }
   };
 
@@ -742,7 +766,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     const nextPages = [...others, ...nextBucket];
     customPagesRef.current = nextPages;
     setCustomPages(nextPages);
-    void saveCustomBlankPages(DECK_ID, nextPages);
+    void saveCustomBlankPages(storageDeckId, nextPages);
     setSelectTrigger(null);
     setSlideIdx(safeSlideIdx + 1);
   };
@@ -753,7 +777,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     );
     customPagesRef.current = nextPages;
     setCustomPages(nextPages);
-    void saveCustomBlankPages(DECK_ID, nextPages);
+    void saveCustomBlankPages(storageDeckId, nextPages);
   };
 
   const handleDeleteBlankPage = (pageId: number) => {
@@ -767,7 +791,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     const nextPages = customPagesRef.current.filter((p) => p.id !== pageId);
     customPagesRef.current = nextPages;
     setCustomPages(nextPages);
-    void saveCustomBlankPages(DECK_ID, nextPages);
+    void saveCustomBlankPages(storageDeckId, nextPages);
 
     if (strokesRef.current[pageId]) {
       const nextMap = { ...strokesRef.current };
@@ -776,7 +800,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
       setStrokesBySlide(nextMap);
     }
     delete undoHistoryRef.current[pageId];
-    void saveSlideInk(DECK_ID, pageId, [], LEGACY_INK_STORAGE_KEY);
+    void saveSlideInk(storageDeckId, pageId, [], legacyInkKey);
     setSelectTrigger(null);
     setSlideIdx((prev) => Math.max(0, Math.min(prev, orderedEntries.length - 2)));
   };
@@ -2800,6 +2824,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
 
                 {/* Transparent Ink / Apple Pencil Overlay (pinned inside scrollable slide body) */}
                 <AnnotationCanvas
+                  key={storageDeckId}
                   strokes={currentStrokes}
                   drawEnabled={drawEnabled}
                   pencilOnly={pencilOnly}
