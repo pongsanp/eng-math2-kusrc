@@ -1,10 +1,28 @@
-export type AnnotationTool = 'pen' | 'eraser' | 'laser';
+export type AnnotationTool = 'pen' | 'eraser' | 'laser' | 'select';
+export type SelectionShape = 'lasso' | 'rect';
 export type EraserMode = 'partial' | 'stroke';
 export type LaserStyle = 'trail' | 'dot';
 export type PrintScope = 'all' | 'lec1' | 'lec2';
 export type NavDirection = 'horizontal' | 'vertical';
 export type ToolbarDock = 'top' | 'bottom' | 'left' | 'right';
 export type SlideLang = 'th' | 'en';
+export type BlankPaperStyle = 'grid' | 'lined' | 'blank';
+
+export interface CustomBlankPage {
+  id: number; // Always negative (-1, -2, ...) so it never collides with positive SlideDef IDs
+  afterSlideId: number;
+  order: number;
+  lecture: 1 | 2;
+  paperStyle: BlankPaperStyle;
+  createdAt: number;
+}
+
+export interface SlideBBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
 
 export const SLIDE_LANG_STORAGE_KEY = 'eng_math_2_slide_lang';
 
@@ -247,4 +265,183 @@ export function renderStrokesToDataUrl(
     drawStrokeOnContext(ctx, st, width, height, scale);
   }
   return offscreen.toDataURL('image/png');
+}
+
+export function computeStrokesBBox(strokes: InkStroke[]): SlideBBox | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let found = false;
+
+  for (const st of strokes) {
+    if (st.isEraser) continue;
+    for (const pt of st.points) {
+      found = true;
+      if (pt[0] < minX) minX = pt[0];
+      if (pt[1] < minY) minY = pt[1];
+      if (pt[0] > maxX) maxX = pt[0];
+      if (pt[1] > maxY) maxY = pt[1];
+    }
+  }
+  return found ? { minX, minY, maxX, maxY } : null;
+}
+
+export function isPointInPolygon(
+  pt: [number, number],
+  poly: Array<[number, number]>,
+): boolean {
+  if (poly.length < 3) return false;
+  const [px, py] = pt;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    const intersects =
+      yi > py !== yj > py &&
+      px < ((xj - xi) * (py - yi)) / (yj - yi || 1e-12) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+export function doesStrokeMatchSelection(
+  stroke: InkStroke,
+  shape: SelectionShape,
+  selectionPoints: Array<[number, number]>,
+): boolean {
+  if (stroke.isEraser || stroke.points.length === 0 || selectionPoints.length < 2) {
+    return false;
+  }
+
+  let insideCount = 0;
+  if (shape === 'rect') {
+    const start = selectionPoints[0];
+    const end = selectionPoints[selectionPoints.length - 1];
+    const minX = Math.min(start[0], end[0]);
+    const maxX = Math.max(start[0], end[0]);
+    const minY = Math.min(start[1], end[1]);
+    const maxY = Math.max(start[1], end[1]);
+    if (maxX - minX < 0.005 && maxY - minY < 0.005) return false;
+    for (const pt of stroke.points) {
+      if (pt[0] >= minX && pt[0] <= maxX && pt[1] >= minY && pt[1] <= maxY) {
+        insideCount++;
+      }
+    }
+  } else {
+    if (selectionPoints.length < 3) return false;
+    for (const pt of stroke.points) {
+      if (isPointInPolygon(pt, selectionPoints)) {
+        insideCount++;
+      }
+    }
+  }
+
+  const threshold =
+    stroke.points.length <= 2 ? 1 : Math.max(1, Math.ceil(stroke.points.length * 0.4));
+  return insideCount >= threshold;
+}
+
+export function clampDeltaToBBox(
+  bbox: SlideBBox,
+  dx: number,
+  dy: number,
+  margin = 0.005,
+): { dx: number; dy: number } {
+  const minDx = margin - bbox.minX;
+  const maxDx = 1 - margin - bbox.maxX;
+  const minDy = margin - bbox.minY;
+  const maxDy = 1 - margin - bbox.maxY;
+  return {
+    dx: minDx <= maxDx ? Math.max(minDx, Math.min(maxDx, dx)) : 0,
+    dy: minDy <= maxDy ? Math.max(minDy, Math.min(maxDy, dy)) : 0,
+  };
+}
+
+export function translateStroke(stroke: InkStroke, dx: number, dy: number): InkStroke {
+  return {
+    ...stroke,
+    points: stroke.points.map(([x, y]) => [
+      Math.max(0, Math.min(1, x + dx)),
+      Math.max(0, Math.min(1, y + dy)),
+    ]),
+  };
+}
+
+export function cloneStrokesWithOffset(
+  strokes: InkStroke[],
+  offsetX = 0.03,
+  offsetY = 0.03,
+): InkStroke[] {
+  const clean = strokes.filter((s) => !s.isEraser && s.points.length > 0);
+  if (clean.length === 0) return [];
+  const bbox = computeStrokesBBox(clean);
+  let dx = offsetX;
+  let dy = offsetY;
+  if (bbox) {
+    if (bbox.maxX + dx > 0.97 && bbox.minX > 0.05) dx = -offsetX;
+    if (bbox.maxY + dy > 0.97 && bbox.minY > 0.05) dy = -offsetY;
+    const clamped = clampDeltaToBBox(bbox, dx, dy, 0.01);
+    dx = clamped.dx;
+    dy = clamped.dy;
+  }
+  return clean.map((st) => translateStroke(st, dx, dy));
+}
+
+export type OrderedDeckEntry<T extends { id: number; lecture: 1 | 2 }> =
+  | { kind: 'builtin'; slide: T; id: number; lecture: 1 | 2 }
+  | { kind: 'blank'; page: CustomBlankPage; id: number; lecture: 1 | 2; blankIndexAfterSlide: number };
+
+export function buildOrderedDeckEntries<T extends { id: number; lecture: 1 | 2 }>(
+  slides: readonly T[],
+  customPages: readonly CustomBlankPage[],
+): Array<OrderedDeckEntry<T>> {
+  const byAfter = new Map<number, CustomBlankPage[]>();
+  for (const cp of customPages) {
+    const arr = byAfter.get(cp.afterSlideId);
+    if (arr) {
+      arr.push(cp);
+    } else {
+      byAfter.set(cp.afterSlideId, [cp]);
+    }
+  }
+  for (const list of byAfter.values()) {
+    list.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || b.id - a.id);
+  }
+
+  const emittedIds = new Set<number>();
+  const result: Array<OrderedDeckEntry<T>> = [];
+
+  for (const s of slides) {
+    result.push({ kind: 'builtin', slide: s, id: s.id, lecture: s.lecture });
+    const attached = byAfter.get(s.id);
+    if (attached) {
+      attached.forEach((p, idx) => {
+        emittedIds.add(p.id);
+        result.push({
+          kind: 'blank',
+          page: p,
+          id: p.id,
+          lecture: s.lecture,
+          blankIndexAfterSlide: idx + 1,
+        });
+      });
+    }
+  }
+
+  // Fallback for any custom page whose anchor slide is no longer visible
+  const orphans = customPages
+    .filter((p) => !emittedIds.has(p.id))
+    .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+  for (const p of orphans) {
+    result.push({
+      kind: 'blank',
+      page: p,
+      id: p.id,
+      lecture: p.lecture,
+      blankIndexAfterSlide: 1,
+    });
+  }
+
+  return result;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PointerEvent as ReactPointerEvent,
   TouchEvent as ReactTouchEvent,
@@ -13,21 +13,29 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ClipboardPaste,
   Copy,
   Eraser,
   FileDown,
+  FilePlus2,
   GripVertical,
   Hand,
+  Lasso,
   LayoutGrid,
   Maximize2,
   Minimize2,
   Palette,
+  PanelBottomClose,
+  PanelBottomOpen,
   PenTool,
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  SquareDashed,
   Trash2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   CH1_VISIBLE_SLIDES,
@@ -35,20 +43,31 @@ import {
   type SlideDef,
   type SlideFormulaBlock,
 } from '../../slides/ch1SlidesData';
-import { clearDeckInk, loadDeckInk, saveSlideInk } from '../../slides/inkStorage';
+import {
+  clearDeckInk,
+  loadCustomBlankPages,
+  loadDeckInk,
+  saveCustomBlankPages,
+  saveSlideInk,
+} from '../../slides/inkStorage';
 import { KaTeX } from '../KaTeX';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import {
+  buildOrderedDeckEntries,
+  cloneStrokesWithOffset,
   detectInAppBrowser,
   isStylusTouch,
   renderStrokesToDataUrl,
   resolveSwipeDirection,
   type AnnotationTool,
+  type BlankPaperStyle,
+  type CustomBlankPage,
   type EraserMode,
   type InkStroke,
   type LaserStyle,
   type NavDirection,
   type PrintScope,
+  type SelectionShape,
   type SlideLang,
   type ToolbarDock,
 } from '../../slides/inkUtils';
@@ -167,10 +186,28 @@ function toneClasses(tone?: SlideFormulaBlock['tone']): string {
   }
 }
 
+function getBlankPaperStyleCss(paperStyle: BlankPaperStyle): Record<string, string> {
+  if (paperStyle === 'grid') {
+    return {
+      backgroundImage: 'radial-gradient(#cbd5e1 1.25px, transparent 1.25px)',
+      backgroundSize: '20px 20px',
+    };
+  }
+  if (paperStyle === 'lined') {
+    return {
+      backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0 31px, #e2e8f0 31px 32px)',
+      backgroundSize: '100% 32px',
+    };
+  }
+  return {};
+}
+
 const STAGE_WIDTH = 1280;
 const STAGE_HEIGHT = 720;
 const NAV_DIR_STORAGE_KEY = 'eng_math_2_nav_dir';
 const TOOLBAR_POS_STORAGE_KEY = 'eng_math_2_toolbar_pos';
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 3;
 
 export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeckProps) {
   const isEn = lang === 'en';
@@ -210,6 +247,13 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     return null;
   });
   const [stageScale, setStageScale] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const zoomRef = useRef(1);
+  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const stageScaleRef = useRef(1);
+  const [compactBars, setCompactBars] = useState(false);
+
   const stageWrapperRef = useRef<HTMLElement | null>(null);
   const slideBodyRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -228,7 +272,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   } | null>(null);
   const wheelCooldownRef = useRef(0);
 
-  // Annotation / Apple Pencil state
+  // Annotation / Apple Pencil / Copy-Select state
   const [drawEnabled, setDrawEnabled] = useState(false);
   const [pencilOnly, setPencilOnly] = useState(true);
   const [penColor, setPenColor] = useState('#2563eb');
@@ -236,12 +280,17 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   const [eraserSize, setEraserSize] = useState(6);
   const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
   const [toolMode, setToolMode] = useState<AnnotationTool>('pen');
+  const [selectionShape, setSelectionShape] = useState<SelectionShape>('lasso');
+  const [clipboardStrokes, setClipboardStrokes] = useState<InkStroke[]>([]);
+  const [selectTrigger, setSelectTrigger] = useState<{ indices: number[]; seq: number } | null>(null);
   const [laserStyle, setLaserStyle] = useState<LaserStyle>('trail');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [strokesBySlide, setStrokesBySlide] = useState<Record<number, InkStroke[]>>({});
   const strokesRef = useRef<Record<number, InkStroke[]>>({});
   const undoHistoryRef = useRef<Record<number, InkStroke[][]>>({});
   const [undoCountBySlide, setUndoCountBySlide] = useState<Record<number, number>>({});
+  const [customPages, setCustomPages] = useState<CustomBlankPage[]>([]);
+  const customPagesRef = useRef<CustomBlankPage[]>([]);
 
   // PDF Export state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -253,6 +302,22 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   const [linkCopied, setLinkCopied] = useState(false);
   const printFallbackTimerRef = useRef<number | null>(null);
   const inAppBrowser = detectInAppBrowser(undefined, lang);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
+
+  useEffect(() => {
+    stageScaleRef.current = stageScale;
+  }, [stageScale]);
+
+  useEffect(() => {
+    customPagesRef.current = customPages;
+  }, [customPages]);
 
   useEffect(() => {
     return () => {
@@ -278,17 +343,32 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
       strokesRef.current = merged;
       setStrokesBySlide(merged);
     });
+    void loadCustomBlankPages(DECK_ID).then((loadedPages) => {
+      if (cancelled) return;
+      if (customPagesRef.current.length > 0) return;
+      customPagesRef.current = loadedPages;
+      setCustomPages(loadedPages);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const totalSlides = CH1_VISIBLE_SLIDES.length;
-  const safeSlideIdx = Math.min(slideIdx, Math.max(0, totalSlides - 1));
-  const slide: SlideDef = CH1_VISIBLE_SLIDES[safeSlideIdx];
-  const loc = getLocalizedSlide(slide, lang);
-  const lecture2StartIdx = CH1_VISIBLE_SLIDES.findIndex((s) => s.lecture === 2);
-  const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalSlides;
+  const orderedEntries = useMemo(
+    () => buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, customPages),
+    [customPages],
+  );
+
+  const totalEntries = orderedEntries.length;
+  const safeSlideIdx = Math.min(slideIdx, Math.max(0, totalEntries - 1));
+  const activeEntry = orderedEntries[safeSlideIdx];
+  const activeId = activeEntry.id;
+  const activeLecture = activeEntry.lecture;
+  const activeBuiltinSlide: SlideDef | null =
+    activeEntry.kind === 'builtin' ? activeEntry.slide : null;
+  const activeLoc = activeBuiltinSlide ? getLocalizedSlide(activeBuiltinSlide, lang) : null;
+  const lecture2StartIdx = orderedEntries.findIndex((e) => e.lecture === 2);
+  const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalEntries;
   const fs = FONT_SCALE_MAP[textScale];
 
   useEffect(() => {
@@ -322,6 +402,33 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     }
   }, [customToolbarPos]);
 
+  const clampPan = useCallback((rawPan: { x: number; y: number }, targetZoom: number) => {
+    if (targetZoom <= 1.005) {
+      return { x: 0, y: 0 };
+    }
+    const baseW = STAGE_WIDTH * stageScaleRef.current;
+    const baseH = STAGE_HEIGHT * stageScaleRef.current;
+    const maxX = Math.max(40, ((targetZoom - 1) * baseW) / 2 + 48);
+    const maxY = Math.max(40, ((targetZoom - 1) * baseH) / 2 + 48);
+    return {
+      x: Math.max(-maxX, Math.min(maxX, rawPan.x)),
+      y: Math.max(-maxY, Math.min(maxY, rawPan.y)),
+    };
+  }, []);
+
+  const zoomTo = useCallback(
+    (nextZoomRaw: number, nextPanRaw?: { x: number; y: number }) => {
+      const clampedZ = Math.round(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoomRaw)) * 100) / 100;
+      const finalZ = clampedZ <= 1.02 ? 1 : clampedZ;
+      zoomRef.current = finalZ;
+      setZoom(finalZ);
+      const clampedP = clampPan(nextPanRaw ?? panRef.current, finalZ);
+      panRef.current = clampedP;
+      setPan(clampedP);
+    },
+    [clampPan],
+  );
+
   useEffect(() => {
     const el = stageWrapperRef.current;
     if (!el) return;
@@ -332,25 +439,33 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
       const availW = Math.max(240, el.clientWidth - padX);
       const availH = Math.max(180, el.clientHeight - padY);
       const next = Math.max(0.2, Math.min(availW / STAGE_WIDTH, availH / STAGE_HEIGHT));
+      stageScaleRef.current = next;
       setStageScale(next);
+      if (zoomRef.current > 1.005) {
+        const clampedP = clampPan(panRef.current, zoomRef.current);
+        panRef.current = clampedP;
+        setPan(clampedP);
+      }
     };
     updateScale();
     const ro = new ResizeObserver(updateScale);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [overviewOpen]);
+  }, [clampPan, compactBars, overviewOpen]);
 
   const goPrev = useCallback(() => {
     setExportMenuOpen(false);
     setColorPickerOpen(false);
+    setSelectTrigger(null);
     setSlideIdx((i) => Math.max(0, i - 1));
   }, []);
 
   const goNext = useCallback(() => {
     setExportMenuOpen(false);
     setColorPickerOpen(false);
-    setSlideIdx((i) => Math.min(totalSlides - 1, i + 1));
-  }, [totalSlides]);
+    setSelectTrigger(null);
+    setSlideIdx((i) => Math.min(totalEntries - 1, i + 1));
+  }, [totalEntries]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -390,11 +505,59 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     }
   }, []);
 
+  const updateSlideStrokes = useCallback(
+    (
+      slideId: number,
+      updater: (prevList: InkStroke[]) => InkStroke[],
+      recordHistory = true,
+    ) => {
+      const prevList = strokesRef.current[slideId] ?? [];
+      const nextList = updater(prevList);
+      if (nextList === prevList) return;
+      if (recordHistory) {
+        const prevHistory = undoHistoryRef.current[slideId] ?? [];
+        const nextHistory = [...prevHistory, prevList].slice(-40);
+        undoHistoryRef.current[slideId] = nextHistory;
+        setUndoCountBySlide((prev) => ({ ...prev, [slideId]: nextHistory.length }));
+      }
+      const nextMap = { ...strokesRef.current, [slideId]: nextList };
+      strokesRef.current = nextMap;
+      setStrokesBySlide(nextMap);
+      void saveSlideInk(DECK_ID, slideId, nextList, LEGACY_INK_STORAGE_KEY);
+    },
+    [],
+  );
+
+  const handlePasteClipboard = useCallback(() => {
+    if (clipboardStrokes.length === 0) return;
+    const clones = cloneStrokesWithOffset(clipboardStrokes, 0.015, 0.015);
+    if (clones.length === 0) return;
+    const curLen = (strokesRef.current[activeId] ?? []).length;
+    const newIndices = clones.map((_, i) => curLen + i);
+    updateSlideStrokes(activeId, (prev) => [...prev, ...clones]);
+    setDrawEnabled(true);
+    setToolMode('select');
+    setSelectTrigger({ indices: newIndices, seq: Date.now() });
+  }, [activeId, clipboardStrokes, updateSlideStrokes]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setExportMenuOpen(false);
         setColorPickerOpen(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        if (clipboardStrokes.length > 0) {
+          e.preventDefault();
+          handlePasteClipboard();
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        zoomTo(1, { x: 0, y: 0 });
         return;
       }
       if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -442,54 +605,53 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goNext, goPrev, navDirection, toggleFullscreen, toolMode]);
-
-  const updateSlideStrokes = useCallback(
-    (
-      slideId: number,
-      updater: (prevList: InkStroke[]) => InkStroke[],
-      recordHistory = true,
-    ) => {
-      const prevList = strokesRef.current[slideId] ?? [];
-      const nextList = updater(prevList);
-      if (nextList === prevList) return;
-      if (recordHistory) {
-        const prevHistory = undoHistoryRef.current[slideId] ?? [];
-        const nextHistory = [...prevHistory, prevList].slice(-40);
-        undoHistoryRef.current[slideId] = nextHistory;
-        setUndoCountBySlide((prev) => ({ ...prev, [slideId]: nextHistory.length }));
-      }
-      const nextMap = { ...strokesRef.current, [slideId]: nextList };
-      strokesRef.current = nextMap;
-      setStrokesBySlide(nextMap);
-      void saveSlideInk(DECK_ID, slideId, nextList, LEGACY_INK_STORAGE_KEY);
-    },
-    [],
-  );
+  }, [
+    clipboardStrokes.length,
+    goNext,
+    goPrev,
+    handlePasteClipboard,
+    navDirection,
+    toggleFullscreen,
+    toolMode,
+    zoomTo,
+  ]);
 
   const handleAddStroke = (stroke: InkStroke) => {
-    updateSlideStrokes(slide.id, (prev) => [...prev, stroke]);
+    updateSlideStrokes(activeId, (prev) => [...prev, stroke]);
   };
 
   const handleEraseStrokes = (remainingStrokes: InkStroke[]) => {
-    updateSlideStrokes(slide.id, () => remainingStrokes);
+    updateSlideStrokes(activeId, () => remainingStrokes);
+  };
+
+  const handleReplaceStrokes = (nextStrokes: InkStroke[]) => {
+    updateSlideStrokes(activeId, () => nextStrokes);
+  };
+
+  const handleCopyStrokes = (copied: InkStroke[]) => {
+    setClipboardStrokes(
+      copied.map((st) => ({
+        ...st,
+        points: st.points.map(([x, y]) => [x, y] as [number, number]),
+      })),
+    );
   };
 
   const handleUndoStroke = () => {
-    const stack = undoHistoryRef.current[slide.id] ?? [];
+    const stack = undoHistoryRef.current[activeId] ?? [];
     if (stack.length > 0) {
       const restored = stack[stack.length - 1];
       const nextStack = stack.slice(0, -1);
-      undoHistoryRef.current[slide.id] = nextStack;
-      setUndoCountBySlide((prev) => ({ ...prev, [slide.id]: nextStack.length }));
-      updateSlideStrokes(slide.id, () => restored, false);
+      undoHistoryRef.current[activeId] = nextStack;
+      setUndoCountBySlide((prev) => ({ ...prev, [activeId]: nextStack.length }));
+      updateSlideStrokes(activeId, () => restored, false);
       return;
     }
-    updateSlideStrokes(slide.id, (prev) => (prev.length === 0 ? prev : prev.slice(0, -1)), false);
+    updateSlideStrokes(activeId, (prev) => (prev.length === 0 ? prev : prev.slice(0, -1)), false);
   };
 
   const handleClearSlideInk = () => {
-    updateSlideStrokes(slide.id, () => []);
+    updateSlideStrokes(activeId, () => []);
   };
 
   const handleClearAllInk = () => {
@@ -505,6 +667,77 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     }
   };
 
+  const handleInsertBlankPage = (paperStyle: BlankPaperStyle = 'grid') => {
+    const curPages = customPagesRef.current;
+    const anchorSlideId =
+      activeEntry.kind === 'builtin' ? activeEntry.slide.id : activeEntry.page.afterSlideId;
+    const newId = curPages.reduce((minId, p) => Math.min(minId, p.id), 0) - 1;
+    const newPage: CustomBlankPage = {
+      id: newId,
+      afterSlideId: anchorSlideId,
+      order: 0,
+      lecture: activeLecture,
+      paperStyle,
+      createdAt: Date.now(),
+    };
+
+    const sameAnchor = curPages
+      .filter((p) => p.afterSlideId === anchorSlideId)
+      .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || b.id - a.id);
+    const others = curPages.filter((p) => p.afterSlideId !== anchorSlideId);
+
+    const insertPos =
+      activeEntry.kind === 'builtin'
+        ? 0
+        : Math.max(0, sameAnchor.findIndex((p) => p.id === activeEntry.page.id) + 1);
+    const nextBucket = [
+      ...sameAnchor.slice(0, insertPos),
+      newPage,
+      ...sameAnchor.slice(insertPos),
+    ].map((p, idx) => ({ ...p, order: (idx + 1) * 10 }));
+
+    const nextPages = [...others, ...nextBucket];
+    customPagesRef.current = nextPages;
+    setCustomPages(nextPages);
+    void saveCustomBlankPages(DECK_ID, nextPages);
+    setSelectTrigger(null);
+    setSlideIdx(safeSlideIdx + 1);
+  };
+
+  const handleChangeBlankPaperStyle = (pageId: number, paperStyle: BlankPaperStyle) => {
+    const nextPages = customPagesRef.current.map((p) =>
+      p.id === pageId ? { ...p, paperStyle } : p,
+    );
+    customPagesRef.current = nextPages;
+    setCustomPages(nextPages);
+    void saveCustomBlankPages(DECK_ID, nextPages);
+  };
+
+  const handleDeleteBlankPage = (pageId: number) => {
+    const hasInk = (strokesRef.current[pageId]?.length ?? 0) > 0;
+    if (hasInk) {
+      const msg = isEn
+        ? 'Delete this extra note page and its handwritten notes?'
+        : 'ต้องการลบหน้ากระดาษจดเพิ่มเติมนี้ (รวมถึงลายมือในหน้านี้) ใช่หรือไม่?';
+      if (!window.confirm(msg)) return;
+    }
+    const nextPages = customPagesRef.current.filter((p) => p.id !== pageId);
+    customPagesRef.current = nextPages;
+    setCustomPages(nextPages);
+    void saveCustomBlankPages(DECK_ID, nextPages);
+
+    if (strokesRef.current[pageId]) {
+      const nextMap = { ...strokesRef.current };
+      delete nextMap[pageId];
+      strokesRef.current = nextMap;
+      setStrokesBySlide(nextMap);
+    }
+    delete undoHistoryRef.current[pageId];
+    void saveSlideInk(DECK_ID, pageId, [], LEGACY_INK_STORAGE_KEY);
+    setSelectTrigger(null);
+    setSlideIdx((prev) => Math.max(0, Math.min(prev, orderedEntries.length - 2)));
+  };
+
   const stepTextScaleDown = () => {
     setTextScale((s) => (s === 'xlarge' ? 'large' : s === 'large' ? 'normal' : 'normal'));
   };
@@ -513,12 +746,12 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     setTextScale((s) => (s === 'normal' ? 'large' : s === 'large' ? 'xlarge' : 'xlarge'));
   };
 
-  const scopedSlides =
+  const scopedEntries =
     exportScope === 'lec1'
-      ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 1)
+      ? orderedEntries.filter((e) => e.lecture === 1)
       : exportScope === 'lec2'
-        ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 2)
-        : CH1_VISIBLE_SLIDES;
+        ? orderedEntries.filter((e) => e.lecture === 2)
+        : orderedEntries;
 
   useEffect(() => {
     if (slideBodyRef.current) {
@@ -526,7 +759,155 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     }
   }, [safeSlideIdx]);
 
+  // 2-finger pinch-to-zoom & pan + 1-finger pan while zoomed (non-passive so iOS Safari doesn't bounce)
+  useEffect(() => {
+    const el = stageWrapperRef.current;
+    if (!el) return;
+
+    type GestureState =
+      | {
+          mode: 'pinch';
+          startDist: number;
+          startMidX: number;
+          startMidY: number;
+          startZoom: number;
+          startPan: { x: number; y: number };
+          wrapCenterX: number;
+          wrapCenterY: number;
+        }
+      | {
+          mode: 'pan';
+          startX: number;
+          startY: number;
+          startPan: { x: number; y: number };
+        };
+
+    let gesture: GestureState | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-floating-toolbar],[data-scene-3d],button,input,a,label')) {
+        gesture = null;
+        return;
+      }
+      if (e.touches.length === 2) {
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        if (dist < 10) return;
+        const rect = el.getBoundingClientRect();
+        gesture = {
+          mode: 'pinch',
+          startDist: dist,
+          startMidX: (t0.clientX + t1.clientX) / 2,
+          startMidY: (t0.clientY + t1.clientY) / 2,
+          startZoom: zoomRef.current,
+          startPan: { ...panRef.current },
+          wrapCenterX: rect.left + rect.width / 2,
+          wrapCenterY: rect.top + rect.height / 2,
+        };
+        return;
+      }
+      if (e.touches.length === 1 && zoomRef.current > 1.01) {
+        if (drawEnabled && !pencilOnly) {
+          gesture = null;
+          return;
+        }
+        const t = e.touches[0] as Touch & { touchType?: string };
+        if (isStylusTouch(t)) {
+          gesture = null;
+          return;
+        }
+        gesture = {
+          mode: 'pan',
+          startX: t.clientX,
+          startY: t.clientY,
+          startPan: { ...panRef.current },
+        };
+      } else {
+        gesture = null;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!gesture) return;
+      if (gesture.mode === 'pinch' && e.touches.length === 2) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        const curMidX = (t0.clientX + t1.clientX) / 2;
+        const curMidY = (t0.clientY + t1.clientY) / 2;
+        const nextZoomRaw = gesture.startZoom * (dist / Math.max(10, gesture.startDist));
+        const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoomRaw));
+        const ratio = clampedZoom / Math.max(0.01, gesture.startZoom);
+        const targetPan = {
+          x:
+            curMidX -
+            gesture.wrapCenterX -
+            (gesture.startMidX - gesture.wrapCenterX - gesture.startPan.x) * ratio,
+          y:
+            curMidY -
+            gesture.wrapCenterY -
+            (gesture.startMidY - gesture.wrapCenterY - gesture.startPan.y) * ratio,
+        };
+        zoomTo(clampedZoom, targetPan);
+      } else if (gesture.mode === 'pan' && e.touches.length === 1) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const nextPan = {
+          x: gesture.startPan.x + (t.clientX - gesture.startX),
+          y: gesture.startPan.y + (t.clientY - gesture.startY),
+        };
+        const clampedP = clampPan(nextPan, zoomRef.current);
+        panRef.current = clampedP;
+        setPan(clampedP);
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        gesture = null;
+      } else if (e.touches.length === 1 && gesture?.mode === 'pinch') {
+        gesture = null;
+      }
+    };
+
+    const onWheelZoom = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const wrapCenterX = rect.left + rect.width / 2;
+      const wrapCenterY = rect.top + rect.height / 2;
+      const startZ = zoomRef.current;
+      const nextZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, startZ * (1 - e.deltaY * 0.004)));
+      const ratio = nextZ / Math.max(0.01, startZ);
+      const targetPan = {
+        x: e.clientX - wrapCenterX - (e.clientX - wrapCenterX - panRef.current.x) * ratio,
+        y: e.clientY - wrapCenterY - (e.clientY - wrapCenterY - panRef.current.y) * ratio,
+      };
+      zoomTo(nextZ, targetPan);
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+    el.addEventListener('wheel', onWheelZoom, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('wheel', onWheelZoom);
+    };
+  }, [clampPan, drawEnabled, pencilOnly, zoomTo]);
+
   const handleStageTouchStart = (e: ReactTouchEvent<HTMLElement>) => {
+    if (zoom > 1.01) {
+      stageSwipeRef.current = null;
+      return;
+    }
     if (drawEnabled && !pencilOnly) {
       stageSwipeRef.current = null;
       return;
@@ -563,6 +944,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     const start = stageSwipeRef.current;
     stageSwipeRef.current = null;
     if (!start || e.changedTouches?.length !== 1) return;
+    if (zoom > 1.01) return;
     if (drawEnabled && !pencilOnly) return;
     const ct = e.changedTouches[0] as Touch & { touchType?: string };
     if (isStylusTouch(ct)) return;
@@ -578,7 +960,8 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   };
 
   const handleStageWheel = (e: ReactWheelEvent<HTMLElement>) => {
-    if (navDirection !== 'vertical') return;
+    if (e.ctrlKey || e.metaKey) return;
+    if (navDirection !== 'vertical' || zoom > 1.01) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest('[data-scene-3d],[data-floating-toolbar]')) return;
     if (Math.abs(e.deltaY) < 24 || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -698,11 +1081,11 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
   const triggerExportPdf = async (withInk: boolean) => {
     const generated: Record<number, string> = {};
     if (withInk) {
-      for (const s of scopedSlides) {
-        const list = strokesBySlide[s.id];
+      for (const entry of scopedEntries) {
+        const list = strokesBySlide[entry.id];
         if (list && list.length > 0) {
           const url = renderStrokesToDataUrl(list, 1920, 1080);
-          if (url) generated[s.id] = url;
+          if (url) generated[entry.id] = url;
         }
       }
     }
@@ -727,50 +1110,56 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
     invokePrintWithFallbackCheck();
   };
 
-  const currentStrokes = strokesBySlide[slide.id] ?? [];
-  const canUndo = (undoCountBySlide[slide.id] ?? 0) > 0 || currentStrokes.length > 0;
+  const currentStrokes = strokesBySlide[activeId] ?? [];
+  const canUndo = (undoCountBySlide[activeId] ?? 0) > 0 || currentStrokes.length > 0;
   const annotatedSlideCount = Object.values(strokesBySlide).filter(
     (list) => Array.isArray(list) && list.length > 0,
   ).length;
-  const scopedAnnotatedCount = scopedSlides.filter(
-    (s) => (strokesBySlide[s.id]?.length ?? 0) > 0,
+  const scopedAnnotatedCount = scopedEntries.filter(
+    (entry) => (strokesBySlide[entry.id]?.length ?? 0) > 0,
   ).length;
 
   return (
     <>
       <div className="print:hidden h-dvh w-screen overflow-hidden flex flex-col bg-slate-100 text-slate-900 select-none">
         {/* Top Control Bar */}
-        <header className="shrink-0 bg-white border-b border-slate-200 px-3 py-1.5 flex flex-wrap items-center justify-between gap-1 z-30">
+        <header className="shrink-0 bg-white border-b border-slate-200 px-2 sm:px-3 py-1 flex flex-wrap items-center justify-between gap-1 z-30">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[15px] font-bold text-slate-700 transition"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[14px] sm:text-[15px] font-bold text-slate-700 transition"
             >
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline">3D Dashboard</span>
             </button>
 
-            <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[14px] font-semibold">
+            <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[13px] font-semibold">
               <button
                 type="button"
-                onClick={() => setSlideIdx(0)}
+                onClick={() => {
+                  setSelectTrigger(null);
+                  setSlideIdx(0);
+                }}
                 className={`px-2 py-1 rounded-lg transition ${
-                  slide.lecture === 1 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
+                  activeLecture === 1 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
                 }`}
               >
                 {isEn ? `Lec 1 (1–${lecture1EndPage})` : `คาบ 1 (1–${lecture1EndPage})`}
               </button>
               <button
                 type="button"
-                onClick={() => setSlideIdx(lecture2StartIdx >= 0 ? lecture2StartIdx : 0)}
+                onClick={() => {
+                  setSelectTrigger(null);
+                  setSlideIdx(lecture2StartIdx >= 0 ? lecture2StartIdx : 0);
+                }}
                 className={`px-2 py-1 rounded-lg transition ${
-                  slide.lecture === 2 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
+                  activeLecture === 2 ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600'
                 }`}
               >
                 {isEn
-                  ? `Lec 2 (${lecture1EndPage + 1}–${totalSlides})`
-                  : `คาบ 2 (${lecture1EndPage + 1}–${totalSlides})`}
+                  ? `Lec 2 (${lecture1EndPage + 1}–${totalEntries})`
+                  : `คาบ 2 (${lecture1EndPage + 1}–${totalEntries})`}
               </button>
             </div>
           </div>
@@ -782,20 +1171,22 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
               onClick={goPrev}
               disabled={safeSlideIdx === 0}
               aria-label={isEn ? 'Previous slide' : 'หน้าก่อนหน้า'}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-[15px] font-bold text-slate-700 disabled:opacity-40 shadow-xs transition"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-[14px] font-bold text-slate-700 disabled:opacity-40 shadow-xs transition"
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="hidden sm:inline">{isEn ? 'Prev' : 'ก่อนหน้า'}</span>
             </button>
-            <div className="px-2 text-[15px] font-mono font-bold text-slate-700">
-              {isEn ? `${safeSlideIdx + 1} / ${totalSlides}` : `หน้า ${safeSlideIdx + 1} / ${totalSlides}`}
+            <div className="px-2 text-[14px] font-mono font-bold text-slate-700">
+              {isEn
+                ? `${safeSlideIdx + 1} / ${totalEntries}`
+                : `หน้า ${safeSlideIdx + 1} / ${totalEntries}`}
             </div>
             <button
               type="button"
               onClick={goNext}
-              disabled={safeSlideIdx === totalSlides - 1}
+              disabled={safeSlideIdx === totalEntries - 1}
               aria-label={isEn ? 'Next slide' : 'หน้าถัดไป'}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[15px] font-bold disabled:opacity-40 shadow-sm transition"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[14px] font-bold disabled:opacity-40 shadow-sm transition"
             >
               <span>{isEn ? 'Next' : 'ถัดไป'}</span>
               <ChevronRight className="w-4 h-4" />
@@ -803,6 +1194,94 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
           </div>
 
           <div className="flex flex-wrap items-center gap-1">
+            {/* Zoom Controls (100% - 300%, also supports 2-finger pinch & Ctrl+Wheel) */}
+            <div
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-[13px] font-bold"
+              title={
+                isEn
+                  ? 'Zoom slide (supports 2-finger pinch or Ctrl+Scroll)'
+                  : 'ซูมขยายสไลด์ (รองรับ 2 นิ้วถ่าง/หุบ หรือ Ctrl+หมุนลูกกลิ้ง)'
+              }
+            >
+              <button
+                type="button"
+                onClick={() => zoomTo(zoom - 0.25)}
+                disabled={zoom <= MIN_ZOOM + 0.01}
+                aria-label={isEn ? 'Zoom out' : 'ซูมออก'}
+                className="p-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-35 transition"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomTo(1, { x: 0, y: 0 })}
+                aria-label={isEn ? 'Reset zoom to 100%' : 'รีเซ็ตซูม 100%'}
+                className={`px-1.5 py-0.5 rounded-lg font-mono text-[12px] transition ${
+                  zoom > 1.01 ? 'bg-sky-100 text-sky-800' : 'text-slate-600 hover:bg-white'
+                }`}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomTo(zoom + 0.25)}
+                disabled={zoom >= MAX_ZOOM - 0.01}
+                aria-label={isEn ? 'Zoom in' : 'ซูมเข้า'}
+                className="p-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-35 transition"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Insert Blank Note Page */}
+            <button
+              type="button"
+              onClick={() => handleInsertBlankPage('grid')}
+              title={
+                isEn
+                  ? 'Insert a blank dot-grid note page right after the current slide'
+                  : 'แทรกหน้ากระดาษเปล่าสำหรับจดเพิ่มต่อท้ายหน้าปัจจุบัน'
+              }
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] sm:text-[14px] font-bold transition"
+            >
+              <FilePlus2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isEn ? '+ Blank' : '+ หน้าเปล่า'}</span>
+            </button>
+
+            {/* Compact / Focus Writing Mode (hides footer to maximize slide space on 7" tablets) */}
+            <button
+              type="button"
+              onClick={() => setCompactBars((c) => !c)}
+              aria-label={
+                isEn
+                  ? compactBars
+                    ? 'Show bottom navigation bar'
+                    : 'Hide bottom bar for more writing space'
+                  : compactBars
+                    ? 'แสดงแถบด้านล่าง'
+                    : 'ซ่อนแถบล่างเพื่อเพิ่มพื้นที่เขียน'
+              }
+              title={
+                isEn
+                  ? compactBars
+                    ? 'Show bottom navigation bar'
+                    : 'Maximize canvas space (hide bottom bar for small tablets)'
+                  : compactBars
+                    ? 'แสดงแถบนำทางด้านล่าง'
+                    : 'ขยายพื้นที่เขียนสูงสุด (ซ่อนแถบล่าง เหมาะสำหรับจอ 7 นิ้ว)'
+              }
+              className={`inline-flex items-center justify-center p-1.5 rounded-xl border transition ${
+                compactBars
+                  ? 'border-sky-500 bg-sky-50 text-sky-700'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {compactBars ? (
+                <PanelBottomOpen className="w-4 h-4" />
+              ) : (
+                <PanelBottomClose className="w-4 h-4" />
+              )}
+            </button>
             {/* Language Switcher (TH / EN) */}
             <div
               className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[13px] font-bold"
@@ -1056,7 +1535,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        {isEn ? `All (1–${totalSlides})` : `ทั้งหมด (1–${totalSlides})`}
+                        {isEn ? `All (1–${totalEntries})` : `ทั้งหมด (1–${totalEntries})`}
                       </button>
                       <button
                         type="button"
@@ -1079,8 +1558,8 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                         }`}
                       >
                         {isEn
-                          ? `Lec 2 (${lecture1EndPage + 1}–${totalSlides})`
-                          : `คาบ 2 (${lecture1EndPage + 1}–${totalSlides})`}
+                          ? `Lec 2 (${lecture1EndPage + 1}–${totalEntries})`
+                          : `คาบ 2 (${lecture1EndPage + 1}–${totalEntries})`}
                       </button>
                     </div>
                   </div>
@@ -1102,8 +1581,8 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                     </div>
                     <div className="text-xs text-slate-600 mt-0.5">
                       {isEn
-                        ? `Export ${scopedSlides.length} slides with your on-screen ink`
-                        : `ส่งออก ${scopedSlides.length} หน้าพร้อมสิ่งที่เขียนบนหน้าจอ`}
+                        ? `Export ${scopedEntries.length} pages with your on-screen ink`
+                        : `ส่งออก ${scopedEntries.length} หน้าพร้อมสิ่งที่เขียนบนหน้าจอ`}
                     </div>
                   </button>
 
@@ -1117,8 +1596,8 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       {isEn
-                        ? `Export ${scopedSlides.length} clean 16:9 dot-grid slides (no ink)`
-                        : `ส่งออก ${scopedSlides.length} หน้าเป็นช่องตารางจุด 16:9 ยังไม่มีลายมือ`}
+                        ? `Export ${scopedEntries.length} clean 16:9 dot-grid slides (no ink)`
+                        : `ส่งออก ${scopedEntries.length} หน้าเป็นช่องตารางจุด 16:9 ยังไม่มีลายมือ`}
                     </div>
                   </button>
 
@@ -1211,23 +1690,88 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
           {/* Overview Drawer */}
           {overviewOpen && (
             <aside className="w-76 shrink-0 border-r border-slate-200 bg-white overflow-y-auto custom-scrollbar p-3 space-y-1.5 z-30">
-              <div className="text-xs sm:text-sm font-bold text-slate-600 px-1 pb-1">
-                {isEn
-                  ? `Chapter 1 Slides (${totalSlides} pages)`
-                  : `สารบัญสไลด์บทที่ 1 (${totalSlides} หน้า)`}
+              <div className="flex items-center justify-between gap-2 px-1 pb-1">
+                <div className="text-xs sm:text-sm font-bold text-slate-600">
+                  {isEn
+                    ? `Chapter 1 (${totalEntries} pages)`
+                    : `สารบัญบทที่ 1 (${totalEntries} หน้า)`}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleInsertBlankPage('grid')}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold text-emerald-800 transition"
+                >
+                  <FilePlus2 className="w-3 h-3" />
+                  <span>{isEn ? '+ Blank' : '+ หน้าเปล่า'}</span>
+                </button>
               </div>
-              {CH1_VISIBLE_SLIDES.map((s, idx) => {
-                const hasInk = (strokesBySlide[s.id]?.length ?? 0) > 0;
+              {orderedEntries.map((entry, idx) => {
+                const hasInk = (strokesBySlide[entry.id]?.length ?? 0) > 0;
+                const isSelected = idx === safeSlideIdx;
+                if (entry.kind === 'blank') {
+                  return (
+                    <div key={entry.id} className="flex items-stretch gap-1 pl-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectTrigger(null);
+                          setSlideIdx(idx);
+                          setOverviewOpen(false);
+                        }}
+                        className={`flex-1 min-w-0 text-left px-2.5 py-1.5 rounded-xl border border-dashed text-xs transition ${
+                          isSelected
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-950 font-bold'
+                            : 'border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] opacity-80">
+                          <span>
+                            {isEn
+                              ? `Page ${idx + 1} • Lec ${entry.lecture}`
+                              : `หน้า ${idx + 1} • คาบ ${entry.lecture}`}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            {hasInk && (
+                              <span
+                                title={isEn ? 'Has handwritten annotations' : 'มีลายมือที่เขียนไว้'}
+                                className="inline-block w-2 h-2 rounded-full bg-amber-500"
+                              />
+                            )}
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold">
+                              {isEn ? 'Note' : 'จดเพิ่ม'}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="truncate mt-0.5">
+                          {isEn
+                            ? `Blank Note #${entry.blankIndexAfterSlide}`
+                            : `กระดาษจดเพิ่มเติม #${entry.blankIndexAfterSlide}`}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBlankPage(entry.id)}
+                        title={isEn ? 'Delete extra note page' : 'ลบหน้ากระดาษจดนี้'}
+                        className="px-2 rounded-xl border border-rose-200/80 bg-rose-50/70 hover:bg-rose-100 text-rose-700 transition flex items-center justify-center"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                }
+
+                const s = entry.slide;
                 return (
                   <button
                     key={s.id}
                     type="button"
                     onClick={() => {
+                      setSelectTrigger(null);
                       setSlideIdx(idx);
                       setOverviewOpen(false);
                     }}
                     className={`w-full text-left px-2.5 py-2 rounded-xl border text-xs sm:text-sm transition ${
-                      idx === safeSlideIdx
+                      isSelected
                         ? 'border-sky-500 bg-sky-50 text-sky-900 font-bold'
                         : 'border-slate-100 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
                     }`}
@@ -1272,8 +1816,26 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
             onTouchMove={handleStageTouchMove}
             onTouchEnd={handleStageTouchEnd}
             onWheel={handleStageWheel}
-            className="slide-stage-wrapper flex-1 min-h-0 p-2 sm:p-3 flex items-center justify-center overflow-hidden relative"
+            className={`slide-stage-wrapper flex-1 min-h-0 flex items-center justify-center overflow-hidden relative ${
+              compactBars ? 'p-0.5 sm:p-1' : 'p-1 sm:p-2'
+            }`}
           >
+            {/* Floating Zoom Reset Indicator when zoomed > 100% */}
+            {zoom > 1.01 && (
+              <div
+                data-floating-toolbar="true"
+                className="absolute top-2 left-2 z-40 flex items-center gap-1.5 rounded-full border border-sky-300 bg-white/95 backdrop-blur-md px-2.5 py-1 shadow-md text-xs font-bold text-sky-800"
+              >
+                <span className="font-mono">{Math.round(zoom * 100)}%</span>
+                <button
+                  type="button"
+                  onClick={() => zoomTo(1, { x: 0, y: 0 })}
+                  className="px-2 py-0.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-[11px] transition"
+                >
+                  {isEn ? 'Reset' : '100%'}
+                </button>
+              </div>
+            )}
             {/* Floating Quick-Toggle when NOT in Write mode (zero layout shift) */}
             {!drawEnabled && (
               <div
@@ -1713,6 +2275,81 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                         </button>
                       </div>
                     )}
+
+                    {/* Select / Copy Tool (Lasso + Rectangle) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setColorPickerOpen(false);
+                        setToolMode((m) => (m === 'select' ? 'pen' : 'select'));
+                      }}
+                      title={
+                        isEn
+                          ? 'Select strokes via Lasso or Rectangle to move, copy, duplicate, or delete'
+                          : 'เลือกเส้นลายมือแบบวงอิสระหรือสี่เหลี่ยม เพื่อย้าย คัดลอก ทำซ้ำ หรือลบ'
+                      }
+                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
+                        toolMode === 'select'
+                          ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                          : 'bg-white text-sky-800 border-sky-200 hover:bg-sky-50'
+                      }`}
+                    >
+                      {selectionShape === 'lasso' ? (
+                        <Lasso className="w-3 h-3" />
+                      ) : (
+                        <SquareDashed className="w-3 h-3" />
+                      )}
+                      <span>{isEn ? 'Select' : 'เลือก'}</span>
+                    </button>
+                    {toolMode === 'select' && (
+                      <div className="inline-flex items-center justify-center rounded-[7px] border border-sky-200 bg-white p-[2px] text-[12px] font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setSelectionShape('lasso')}
+                          title={isEn ? 'Freehand Lasso selection' : 'วงลากล้อมรอบอิสระ'}
+                          className={`inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-[5px] transition ${
+                            selectionShape === 'lasso'
+                              ? 'bg-sky-600 text-white shadow-xs'
+                              : 'text-sky-800 hover:bg-sky-50'
+                          }`}
+                        >
+                          <Lasso className="w-3 h-3" />
+                          <span>{isEn ? 'Lasso' : 'วงอิสระ'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectionShape('rect')}
+                          title={isEn ? 'Rectangle box selection' : 'ลากกรอบสี่เหลี่ยม'}
+                          className={`inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-[5px] transition ${
+                            selectionShape === 'rect'
+                              ? 'bg-sky-600 text-white shadow-xs'
+                              : 'text-sky-800 hover:bg-sky-50'
+                          }`}
+                        >
+                          <SquareDashed className="w-3 h-3" />
+                          <span>{isEn ? 'Rect' : 'สี่เหลี่ยม'}</span>
+                        </button>
+                      </div>
+                    )}
+                    {clipboardStrokes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handlePasteClipboard}
+                        title={
+                          isEn
+                            ? `Paste ${clipboardStrokes.length} copied strokes onto current page (Ctrl+V)`
+                            : `วางลายมือที่คัดลอกไว้ (${clipboardStrokes.length} เส้น) ลงในหน้านี้ (Ctrl+V)`
+                        }
+                        className="inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border border-emerald-500 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
+                      >
+                        <ClipboardPaste className="w-3 h-3" />
+                        <span>
+                          {isEn
+                            ? `Paste (${clipboardStrokes.length})`
+                            : `วาง (${clipboardStrokes.length})`}
+                        </span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Palm Rejection Toggle */}
@@ -1808,12 +2445,17 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
               );
             })()}
 
-            {/* Scaled Fixed-Resolution 1280x720 Slide Stage (Zero Ink Shift on Resize/Fullscreen) */}
+            {/* Scaled Fixed-Resolution 1280x720 Slide Stage (Zero Ink Shift on Resize/Fullscreen/Zoom) */}
             <div
               className="relative shrink-0"
               style={{
                 width: Math.round(STAGE_WIDTH * stageScale),
                 height: Math.round(STAGE_HEIGHT * stageScale),
+                transform:
+                  zoom > 1.005 || pan.x !== 0 || pan.y !== 0
+                    ? `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`
+                    : undefined,
+                transformOrigin: 'center center',
               }}
             >
               <div
@@ -1825,33 +2467,95 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                   transformOrigin: 'top left',
                 }}
               >
-              {/* Slide Header */}
-              <div className="shrink-0 px-6 pt-2.5 pb-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
-                      01417168
-                    </span>
-                    <span className="text-sky-700">{loc.primaryTag}</span>
-                    <span className="text-slate-400">• {loc.secondaryTag}</span>
-                    {slide.embed3D && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[16px]">
-                        <Sparkles className="w-3.5 h-3.5" /> Interactive 3D
+              {/* Slide Header (Built-in vs Blank Note Page) */}
+              {activeEntry.kind === 'blank' ? (
+                <div className="shrink-0 px-6 pt-2.5 pb-2 border-b border-slate-200 bg-gradient-to-r from-emerald-50/70 via-white to-sky-50/50 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
+                        01417168
                       </span>
+                      <span className="text-emerald-700">
+                        {isEn ? `Lecture ${activeLecture}` : `คาบที่ ${activeLecture}`}
+                      </span>
+                      <span className="text-slate-400">
+                        • {isEn ? 'Extra Note Page' : 'หน้ากระดาษจดเพิ่มเติม'}
+                      </span>
+                    </div>
+                    <h2 className={`${fs.title} font-extrabold text-slate-900 mt-0.5`}>
+                      {isEn
+                        ? `Blank Note Sheet #${activeEntry.blankIndexAfterSlide}`
+                        : `กระดาษจดเพิ่มเติม #${activeEntry.blankIndexAfterSlide}`}
+                    </h2>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1 text-[16px] font-bold">
+                      {(
+                        [
+                          { id: 'grid', th: 'กระดาษจุด', en: 'Dot Grid' },
+                          { id: 'lined', th: 'มีเส้น', en: 'Lined' },
+                          { id: 'blank', th: 'หน้าเปล่า', en: 'Blank' },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleChangeBlankPaperStyle(activeEntry.page.id, opt.id)}
+                          className={`px-3 py-1 rounded-lg transition ${
+                            activeEntry.page.paperStyle === opt.id
+                              ? 'bg-white text-emerald-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {isEn ? opt.en : opt.th}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBlankPage(activeEntry.page.id)}
+                      title={isEn ? 'Delete this blank page' : 'ลบหน้ากระดาษเปล่านี้'}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[16px] font-bold transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>{isEn ? 'Delete Page' : 'ลบหน้านี้'}</span>
+                    </button>
+
+                    <div className="text-[20px] font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600">
+                      {safeSlideIdx + 1} / {totalEntries}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="shrink-0 px-6 pt-2.5 pb-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50/60 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[20px] font-bold">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white">
+                        01417168
+                      </span>
+                      <span className="text-sky-700">{activeLoc?.primaryTag}</span>
+                      <span className="text-slate-400">• {activeLoc?.secondaryTag}</span>
+                      {activeBuiltinSlide?.embed3D && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[16px]">
+                          <Sparkles className="w-3.5 h-3.5" /> Interactive 3D
+                        </span>
+                      )}
+                    </div>
+                    <h2 className={`${fs.title} font-extrabold text-slate-900 mt-0.5`}>
+                      {activeLoc?.title}
+                    </h2>
+                    {activeLoc?.subtitle && (
+                      <p className={`${fs.subtitle} text-slate-500`}>{activeLoc.subtitle}</p>
                     )}
                   </div>
-                  <h2 className={`${fs.title} font-extrabold text-slate-900 mt-0.5`}>
-                    {loc.title}
-                  </h2>
-                  {loc.subtitle && (
-                    <p className={`${fs.subtitle} text-slate-500`}>{loc.subtitle}</p>
-                  )}
-                </div>
 
-                <div className="text-[20px] font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 shrink-0">
-                  {safeSlideIdx + 1} / {totalSlides}
+                  <div className="text-[20px] font-mono font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 shrink-0">
+                    {safeSlideIdx + 1} / {totalEntries}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Slide Body (always scrollable via finger/wheel even in Write mode; ink canvas moves with content) */}
               <div
@@ -1860,21 +2564,38 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                   drawEnabled ? 'select-none' : 'select-text'
                 }`}
               >
-                <div className="relative flex-1 p-3.5 flex flex-col">
-                {slide.kind === 'example' && loc.examples ? (
+                <div
+                  className={`relative flex-1 flex flex-col ${
+                    activeBuiltinSlide?.kind === 'example' || activeEntry.kind === 'blank'
+                      ? 'p-2.5'
+                      : 'p-3.5'
+                  }`}
+                >
+                {activeEntry.kind === 'blank' ? (
+                  <div
+                    className="flex-1 rounded-2xl border border-dashed border-slate-300 bg-white p-4 flex items-end justify-end text-sm text-slate-400"
+                    style={getBlankPaperStyleCss(activeEntry.page.paperStyle)}
+                  >
+                    {isEn
+                      ? 'Blank note sheet — use "Write" or Apple Pencil to jot extra derivations'
+                      : 'หน้ากระดาษจดเพิ่มเติม — เปิด “เขียน” เพื่อจดทดลองคำนวณหรือตัวอย่างเพิ่มได้เต็มหน้า'}
+                  </div>
+                ) : activeBuiltinSlide?.kind === 'example' && activeLoc?.examples ? (
                   <div
                     className={`flex-1 min-h-0 flex flex-col ${
-                      loc.examples.length > 1 ? 'gap-2' : 'gap-2.5'
+                      activeLoc.examples.length > 1 ? 'gap-1.5' : 'gap-2.5'
                     }`}
                   >
-                    {loc.examples.map((ex, exIdx) => (
+                    {activeLoc.examples.map((ex, exIdx) => (
                       <div
                         key={exIdx}
                         className={`flex-1 min-h-0 flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 ${
-                          loc.examples && loc.examples.length > 1 ? 'p-2.5 gap-1.5' : 'p-3.5 gap-2'
+                          activeLoc.examples && activeLoc.examples.length > 1
+                            ? 'p-2 gap-1'
+                            : 'p-3 gap-1.5'
                         }`}
                       >
-                        <div className="space-y-1.5">
+                        <div className={activeLoc.examples && activeLoc.examples.length > 1 ? 'space-y-1' : 'space-y-1.5'}>
                           <div className={`${fs.exPrompt} font-bold text-slate-900 leading-snug`}>
                             {ex.displayLabel && (
                               <span
@@ -1892,7 +2613,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                           </div>
                           {ex.displayLatex && (
                             <div
-                              className={`px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 inline-block max-w-full overflow-x-auto overflow-y-hidden leading-normal text-sky-900 ${fs.exLatex}`}
+                              className={`px-3 py-1 rounded-xl bg-white border border-slate-200 inline-block max-w-full overflow-x-auto overflow-y-hidden leading-normal text-sky-900 ${fs.exLatex}`}
                             >
                               <KaTeX math={ex.displayLatex} />
                             </div>
@@ -1903,9 +2624,9 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                           const writeArea = (
                             <div
                               className={`${ex.scene3D ? 'col-span-8 h-full' : 'flex-1'} ${
-                                loc.examples && loc.examples.length > 1
-                                  ? 'min-h-[100px]'
-                                  : 'min-h-[180px]'
+                                activeLoc.examples && activeLoc.examples.length > 1
+                                  ? 'min-h-[165px]'
+                                  : 'min-h-[250px]'
                               } rounded-2xl border border-dashed border-slate-300 bg-white p-3 flex items-end justify-end text-xs text-slate-400`}
                               style={{
                                 backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
@@ -1944,23 +2665,23 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                 ) : (
                   <div
                     className={`flex-1 min-h-0 grid gap-4 ${
-                      slide.embed3D ? 'grid-cols-12 items-start' : 'grid-cols-1'
+                      activeBuiltinSlide?.embed3D ? 'grid-cols-12 items-start' : 'grid-cols-1'
                     }`}
                   >
                     <div
                       className={
-                        slide.embed3D
+                        activeBuiltinSlide?.embed3D
                           ? 'col-span-6 my-auto flex flex-col gap-2.5'
-                          : slide.kind === 'summary'
+                          : activeBuiltinSlide?.kind === 'summary'
                             ? 'grid grid-cols-2 gap-3 items-stretch'
                             : 'my-auto flex flex-col gap-2.5'
                       }
                     >
-                      {loc.cards?.map((card, cIdx) => (
+                      {activeLoc?.cards?.map((card, cIdx) => (
                         <div
                           key={cIdx}
                           className={`rounded-2xl border border-slate-200 bg-slate-50/70 ${
-                            slide.kind === 'summary'
+                            activeBuiltinSlide?.kind === 'summary'
                               ? 'p-3 space-y-1 flex flex-col justify-between'
                               : 'p-3.5 space-y-1.5'
                           }`}
@@ -1997,7 +2718,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                                   )}
                                   <div
                                     className={`overflow-x-auto overflow-y-hidden leading-normal py-0.5 ${
-                                      slide.kind === 'summary' ? 'text-[20px]' : fs.formula
+                                      activeBuiltinSlide?.kind === 'summary' ? 'text-[20px]' : fs.formula
                                     }`}
                                   >
                                     <KaTeX math={f.latex} />
@@ -2017,15 +2738,15 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                       ))}
                     </div>
 
-                    {slide.embed3D && (
+                    {activeBuiltinSlide?.embed3D && (
                       <div
                         className={`col-span-6 sticky top-0 h-[520px] ${
                           drawEnabled && toolMode !== 'laser' ? 'z-[25]' : 'z-10'
                         }`}
                       >
                         <MiniScene3D
-                          embed={slide.embed3D}
-                          hintTh={loc.embedHint}
+                          embed={activeBuiltinSlide.embed3D}
+                          hintTh={activeLoc?.embedHint}
                           aboveInk={drawEnabled && toolMode !== 'laser'}
                           lang={lang}
                         />
@@ -2044,9 +2765,15 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                   eraserSize={eraserSize}
                   eraserMode={eraserMode}
                   toolMode={toolMode}
+                  selectionShape={selectionShape}
                   laserStyle={laserStyle}
+                  zoom={zoom}
+                  lang={lang}
+                  selectTrigger={selectTrigger}
                   onAddStroke={handleAddStroke}
                   onEraseStrokes={handleEraseStrokes}
+                  onReplaceStrokes={handleReplaceStrokes}
+                  onCopyStrokes={handleCopyStrokes}
                 />
                 </div>
               </div>
@@ -2055,42 +2782,44 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
           </main>
         </div>
 
-        {/* Bottom Navigation Bar */}
-        <footer className="shrink-0 bg-white border-t border-slate-200 px-3 sm:px-6 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] flex items-center justify-between gap-3 z-20">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={safeSlideIdx === 0}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs sm:text-sm font-bold text-slate-700 disabled:opacity-40 transition"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>{isEn ? 'Previous' : 'ก่อนหน้า'}</span>
-          </button>
+        {/* Bottom Navigation Bar (collapsible via Focus button for maximum 7" tablet writing space) */}
+        {!compactBars && (
+          <footer className="shrink-0 bg-white border-t border-slate-200 px-3 sm:px-5 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex items-center justify-between gap-3 z-20">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={safeSlideIdx === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs sm:text-sm font-bold text-slate-700 disabled:opacity-40 transition"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>{isEn ? 'Previous' : 'ก่อนหน้า'}</span>
+            </button>
 
-          <div className="flex-1 max-w-md flex flex-col items-center gap-1">
-            <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-              <div
-                className="h-full bg-sky-600 transition-all duration-200"
-                style={{ width: `${((safeSlideIdx + 1) / totalSlides) * 100}%` }}
-              />
+            <div className="flex-1 max-w-md flex flex-col items-center gap-0.5">
+              <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className="h-full bg-sky-600 transition-all duration-200"
+                  style={{ width: `${((safeSlideIdx + 1) / totalEntries) * 100}%` }}
+                />
+              </div>
+              <div className="text-[11px] sm:text-xs font-semibold text-slate-600">
+                {isEn
+                  ? `Page ${safeSlideIdx + 1} / ${totalEntries} • Lecture ${activeLecture}`
+                  : `หน้า ${safeSlideIdx + 1} / ${totalEntries} • คาบที่ ${activeLecture}`}
+              </div>
             </div>
-            <div className="text-xs font-semibold text-slate-600">
-              {isEn
-                ? `Slide ${safeSlideIdx + 1} / ${totalSlides} • Lecture ${slide.lecture}`
-                : `หน้า ${safeSlideIdx + 1} / ${totalSlides} • คาบที่ ${slide.lecture}`}
-            </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={safeSlideIdx === totalSlides - 1}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold shadow-sm disabled:opacity-40 transition"
-          >
-            <span>{isEn ? 'Next' : 'ถัดไป'}</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </footer>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={safeSlideIdx === totalEntries - 1}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold shadow-sm disabled:opacity-40 transition"
+            >
+              <span>{isEn ? 'Next' : 'ถัดไป'}</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </footer>
+        )}
       </div>
 
       {/* Hidden Print/PDF Export Layout */}
@@ -2098,6 +2827,7 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
         includeInk={printIncludeInk}
         inkImagesBySlide={inkImagesBySlide}
         printScope={exportScope}
+        customPages={customPages}
         lang={lang}
       />
     </>

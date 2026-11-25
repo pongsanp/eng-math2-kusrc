@@ -1,6 +1,12 @@
 import type { SlideDef, SlideEmbed3DKind, SlideExampleScene3D } from '../../slides/ch1SlidesData';
 import { CH1_VISIBLE_SLIDES, getLocalizedSlide } from '../../slides/ch1SlidesData';
-import type { PrintScope, SlideLang } from '../../slides/inkUtils';
+import {
+  buildOrderedDeckEntries,
+  type BlankPaperStyle,
+  type CustomBlankPage,
+  type PrintScope,
+  type SlideLang,
+} from '../../slides/inkUtils';
 import { KaTeX } from '../KaTeX';
 import { RichMathText } from './RichMathText';
 
@@ -8,6 +14,7 @@ interface SlidePrintViewProps {
   includeInk: boolean;
   inkImagesBySlide: Record<number, string>;
   printScope: PrintScope;
+  customPages?: CustomBlankPage[];
   lang?: SlideLang;
 }
 
@@ -758,19 +765,132 @@ function renderPrintSlide(
   );
 }
 
+function getBlankPaperStyleCss(paperStyle: BlankPaperStyle): Record<string, string> {
+  if (paperStyle === 'grid') {
+    return {
+      backgroundImage: 'radial-gradient(#cbd5e1 1.25px, transparent 1.25px)',
+      backgroundSize: '20px 20px',
+    };
+  }
+  if (paperStyle === 'lined') {
+    return {
+      backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0 31px, #e2e8f0 31px 32px)',
+      backgroundSize: '100% 32px',
+    };
+  }
+  return {};
+}
+
+function renderPrintBlankPage(
+  page: CustomBlankPage,
+  lecture: 1 | 2,
+  blankIndexAfterSlide: number,
+  index: number,
+  total: number,
+  includeInk: boolean,
+  scopeText: string,
+  lang: SlideLang,
+  inkDataUrl?: string,
+) {
+  const isEn = lang === 'en';
+  const styleLabel = isEn
+    ? page.paperStyle === 'grid'
+      ? 'Dot Grid'
+      : page.paperStyle === 'lined'
+        ? 'Lined Paper'
+        : 'Blank Paper'
+    : page.paperStyle === 'grid'
+      ? 'กระดาษจุด'
+      : page.paperStyle === 'lined'
+        ? 'กระดาษมีเส้น'
+        : 'กระดาษเปล่า';
+
+  return (
+    <div key={page.id} className="print-slide-page bg-white">
+      <div className="print-slide-slot">
+        <div className="print-slide-inner bg-white text-slate-900 p-5 pb-3 flex flex-col justify-between border border-slate-200">
+          <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+            {/* Header matching regular slide proportion */}
+            <div className="shrink-0 flex items-start justify-between gap-4 border-b border-slate-200 pb-2.5">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-bold text-emerald-700">
+                  <span className="px-2 py-0.5 rounded bg-emerald-600 text-white">01417168</span>
+                  <span>{isEn ? `Lecture ${lecture}` : `คาบที่ ${lecture}`}</span>
+                  <span className="text-slate-400">
+                    • {isEn ? 'Extra Note Page' : 'หน้ากระดาษจดเพิ่มเติม'} ({styleLabel})
+                  </span>
+                </div>
+                <h2 className="text-[28px] leading-tight font-extrabold text-slate-900 mt-1">
+                  {isEn
+                    ? `Blank Note Sheet #${blankIndexAfterSlide}`
+                    : `กระดาษจดเพิ่มเติม #${blankIndexAfterSlide}`}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {isEn
+                    ? 'Extra workspace for derivations and practice'
+                    : 'พื้นที่จดคำนวณและแบบฝึกหัดเพิ่มเติม'}
+                </p>
+              </div>
+              <div className="text-sm font-mono font-bold text-slate-500 shrink-0">
+                {index + 1} / {total}
+              </div>
+            </div>
+
+            {/* Body (matches SlidesDeck Blank Note Body + ink 1:1) */}
+            <div className="relative flex-1 min-h-0 py-3">
+              <div
+                className="h-full w-full rounded-2xl border border-dashed border-slate-300 bg-white"
+                style={getBlankPaperStyleCss(page.paperStyle)}
+              />
+              {includeInk && inkDataUrl && (
+                <img
+                  src={inkDataUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full pointer-events-none z-20"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="shrink-0 flex items-center justify-between text-xs text-slate-500 border-t border-slate-200 pt-2">
+            <span>
+              {isEn
+                ? '01417168 Engineering Mathematics II • Faculty of Science at Sriracha, Kasetsart University'
+                : '01417168 คณิตศาสตร์วิศวกรรม II • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'}
+            </span>
+            <span>
+              {scopeText} •{' '}
+              {isEn
+                ? includeInk
+                  ? 'With Handwritten Annotations'
+                  : 'Blank Worksheet Edition (GoodNotes)'
+                : includeInk
+                  ? 'ฉบับรวมลายมือประกอบการสอน'
+                  : 'ฉบับเว้นที่เขียนประกอบการสอน (GoodNotes)'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SlidePrintView({
   includeInk,
   inkImagesBySlide,
   printScope,
+  customPages = [],
   lang = 'th',
 }: SlidePrintViewProps) {
   const isEn = lang === 'en';
-  const slidesToPrint =
+  const orderedAll = buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, customPages);
+  const entriesToPrint =
     printScope === 'lec1'
-      ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 1)
+      ? orderedAll.filter((e) => e.lecture === 1)
       : printScope === 'lec2'
-        ? CH1_VISIBLE_SLIDES.filter((s) => s.lecture === 2)
-        : CH1_VISIBLE_SLIDES;
+        ? orderedAll.filter((e) => e.lecture === 2)
+        : orderedAll;
 
   const scopeText = isEn
     ? printScope === 'lec1'
@@ -786,16 +906,28 @@ export function SlidePrintView({
 
   return (
     <div className="hidden print:block">
-      {slidesToPrint.map((s, idx) =>
-        renderPrintSlide(
-          s,
-          idx,
-          slidesToPrint.length,
-          includeInk,
-          scopeText,
-          lang,
-          inkImagesBySlide[s.id],
-        ),
+      {entriesToPrint.map((entry, idx) =>
+        entry.kind === 'builtin'
+          ? renderPrintSlide(
+              entry.slide,
+              idx,
+              entriesToPrint.length,
+              includeInk,
+              scopeText,
+              lang,
+              inkImagesBySlide[entry.slide.id],
+            )
+          : renderPrintBlankPage(
+              entry.page,
+              entry.lecture,
+              entry.blankIndexAfterSlide,
+              idx,
+              entriesToPrint.length,
+              includeInk,
+              scopeText,
+              lang,
+              inkImagesBySlide[entry.page.id],
+            ),
       )}
     </div>
   );
