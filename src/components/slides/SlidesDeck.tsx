@@ -2777,6 +2777,20 @@ export function SlidesDeck({ onBackToDashboard, lang, onChangeLang }: SlidesDeck
                 />
                 </div>
               </div>
+
+              {/* Inside-Slide Faculty Credit Footer (matches PDF export on every page) */}
+              <div className="shrink-0 px-6 py-1.5 border-t border-slate-200/80 bg-slate-50/70 flex items-center justify-between text-[13px] font-medium text-slate-500">
+                <span>
+                  {isEn
+                    ? '01417168 Engineering Mathematics II • Faculty of Science at Sriracha, Kasetsart University'
+                    : '01417168 คณิตศาสตร์วิศวกรรม II • คณะวิทยาศาสตร์ ศรีราชา ม.เกษตรศาสตร์'}
+                </span>
+                <span>
+                  {isEn
+                    ? `Chapter 1 • Lecture ${activeLecture} • Page ${safeSlideIdx + 1} / ${totalEntries}`
+                    : `บทที่ 1 • คาบที่ ${activeLecture} • หน้า ${safeSlideIdx + 1} / ${totalEntries}`}
+                </span>
+              </div>
               </div>
             </div>
           </main>
