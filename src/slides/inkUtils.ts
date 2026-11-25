@@ -1,4 +1,6 @@
-export type AnnotationTool = 'pen' | 'eraser' | 'laser' | 'select';
+export type AnnotationTool = 'pen' | 'highlighter' | 'eraser' | 'laser' | 'select';
+export type PenStyle = 'mono' | 'fountain';
+export type SnapShapeMode = 'off' | 'line' | 'smart';
 export type SelectionShape = 'lasso' | 'rect';
 export type EraserMode = 'partial' | 'stroke';
 export type LaserStyle = 'trail' | 'dot';
@@ -296,6 +298,8 @@ export interface InkStroke {
   color: string;
   width: number;
   isEraser?: boolean;
+  isHighlighter?: boolean;
+  pressures?: number[]; // normalized width multiplier per point (Fountain pen)
   points: Array<[number, number]>; // normalized: x in [0..1], y in [-headerRatio..1] (0..1 = body)
 }
 
@@ -322,28 +326,68 @@ export function drawStrokeOnContext(
     ctx.lineWidth = st.width * scale * 4.5;
   } else {
     ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = st.isHighlighter ? 0.34 : 1;
     ctx.strokeStyle = st.color;
     ctx.lineWidth = st.width * scale;
   }
 
   const pts = st.points;
   const toY = (ny: number) => ny * h + offsetY;
-  ctx.beginPath();
+
   if (pts.length === 1) {
-    ctx.arc(pts[0][0] * w, toY(pts[0][1]), ctx.lineWidth / 2, 0, Math.PI * 2);
+    const p0Mult = st.pressures?.[0] ?? 1;
+    ctx.beginPath();
+    ctx.arc(pts[0][0] * w, toY(pts[0][1]), (ctx.lineWidth * p0Mult) / 2, 0, Math.PI * 2);
     ctx.fillStyle = st.isEraser ? 'rgba(0,0,0,1)' : st.color;
     ctx.fill();
-  } else {
-    ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
-    for (let i = 1; i < pts.length - 1; i++) {
-      const midX = ((pts[i][0] + pts[i + 1][0]) / 2) * w;
-      const midY = toY((pts[i][1] + pts[i + 1][1]) / 2);
-      ctx.quadraticCurveTo(pts[i][0] * w, toY(pts[i][1]), midX, midY);
-    }
-    const last = pts[pts.length - 1];
-    ctx.lineTo(last[0] * w, toY(last[1]));
-    ctx.stroke();
+    ctx.restore();
+    return;
   }
+
+  // Variable-width tapered rendering when fountain-pen pressure samples are present
+  if (
+    !st.isEraser &&
+    !st.isHighlighter &&
+    st.pressures &&
+    st.pressures.length === pts.length
+  ) {
+    const pr = st.pressures;
+    let prevMidX = pts[0][0] * w;
+    let prevMidY = toY(pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const nextX =
+        i < pts.length - 1 ? ((pts[i][0] + pts[i + 1][0]) / 2) * w : pts[i][0] * w;
+      const nextY =
+        i < pts.length - 1
+          ? toY((pts[i][1] + pts[i + 1][1]) / 2)
+          : toY(pts[i][1]);
+      const avgP = (pr[i - 1] + pr[i]) / 2;
+      ctx.lineWidth = Math.max(0.9 * scale, st.width * scale * avgP);
+      ctx.beginPath();
+      ctx.moveTo(prevMidX, prevMidY);
+      if (i < pts.length - 1) {
+        ctx.quadraticCurveTo(pts[i][0] * w, toY(pts[i][1]), nextX, nextY);
+      } else {
+        ctx.lineTo(nextX, nextY);
+      }
+      ctx.stroke();
+      prevMidX = nextX;
+      prevMidY = nextY;
+    }
+    ctx.restore();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
+  for (let i = 1; i < pts.length - 1; i++) {
+    const midX = ((pts[i][0] + pts[i + 1][0]) / 2) * w;
+    const midY = toY((pts[i][1] + pts[i + 1][1]) / 2);
+    ctx.quadraticCurveTo(pts[i][0] * w, toY(pts[i][1]), midX, midY);
+  }
+  const last = pts[pts.length - 1];
+  ctx.lineTo(last[0] * w, toY(last[1]));
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -477,6 +521,245 @@ export function clampDeltaToBBox(
     dx: minDx <= maxDx ? Math.max(minDx, Math.min(maxDx, dx)) : 0,
     dy: minDy <= maxDy ? Math.max(minDy, Math.min(maxDy, dy)) : 0,
   };
+}
+
+export function scaleStroke(
+  stroke: InkStroke,
+  anchorX: number,
+  anchorY: number,
+  scaleX: number,
+  scaleY: number,
+  minY = -0.5,
+): InkStroke {
+  const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+  const nextWidth =
+    Math.round(Math.max(1, Math.min(36, stroke.width * Math.max(0.65, Math.min(1.85, avgScale)))) * 10) /
+    10;
+  return {
+    ...stroke,
+    width: nextWidth,
+    points: stroke.points.map(([x, y]) => [
+      Math.max(0, Math.min(1, anchorX + (x - anchorX) * scaleX)),
+      Math.max(minY, Math.min(1, anchorY + (y - anchorY) * scaleY)),
+    ]),
+  };
+}
+
+export function recolorStroke(stroke: InkStroke, color: string): InkStroke {
+  return stroke.isEraser ? stroke : { ...stroke, color };
+}
+
+function rdpSimplifyPx(pts: Array<[number, number]>, eps: number): Array<[number, number]> {
+  if (pts.length <= 2) return pts.slice();
+  const [ax, ay] = pts[0];
+  const [bx, by] = pts[pts.length - 1];
+  const abx = bx - ax;
+  const aby = by - ay;
+  const abLen = Math.hypot(abx, aby);
+  let maxDist = 0;
+  let maxIdx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i];
+    const d =
+      abLen < 1e-6
+        ? Math.hypot(px - ax, py - ay)
+        : Math.abs(abx * (ay - py) - (ax - px) * aby) / abLen;
+    if (d > maxDist) {
+      maxDist = d;
+      maxIdx = i;
+    }
+  }
+  if (maxDist > eps) {
+    const left = rdpSimplifyPx(pts.slice(0, maxIdx + 1), eps);
+    const right = rdpSimplifyPx(pts.slice(maxIdx), eps);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+
+export interface SnapShapeResult {
+  kind: 'line' | 'circle' | 'ellipse' | 'rect' | 'triangle' | 'arrow';
+  points: Array<[number, number]>;
+}
+
+/**
+ * Recognizes geometric primitives (line, arrow, circle, ellipse, triangle, rectangle)
+ * from a single normalized stroke when held still at the end.
+ */
+export function recognizeHoldSnapShape(
+  points: Array<[number, number]>,
+  stageW: number,
+  stageBodyH: number,
+  mode: SnapShapeMode,
+  minNormY = -0.45,
+): SnapShapeResult | null {
+  if (mode === 'off' || points.length < 2) return null;
+
+  const toNorm = (px: number, py: number): [number, number] => [
+    Math.max(0, Math.min(1, px / stageW)),
+    Math.max(minNormY, Math.min(1, py / stageBodyH)),
+  ];
+
+  const pxPts = points.map(([nx, ny]) => [nx * stageW, ny * stageBodyH] as [number, number]);
+  let pathLen = 0;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < pxPts.length; i++) {
+    const [x, y] = pxPts[i];
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (i > 0) {
+      pathLen += Math.hypot(x - pxPts[i - 1][0], y - pxPts[i - 1][1]);
+    }
+  }
+  if (pathLen < 34) return null;
+
+  const startPx = pxPts[0];
+  const endPx = pxPts[pxPts.length - 1];
+  const directSpan = Math.hypot(endPx[0] - startPx[0], endPx[1] - startPx[1]);
+
+  if (mode === 'line') {
+    if (directSpan < 24) return null;
+    return { kind: 'line', points: [points[0], points[points.length - 1]] };
+  }
+
+  const bw = maxX - minX;
+  const bh = maxY - minY;
+  const diag = Math.hypot(bw, bh);
+
+  // 1. Closed shape detection (Circle / Ellipse / Triangle / Rectangle)
+  if (diag >= 36 && directSpan <= Math.max(44, diag * 0.28) && pathLen >= 80) {
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const rx = Math.max(8, bw / 2);
+    const ry = Math.max(8, bh / 2);
+
+    // Ellipse radial fit error
+    let radErrSum = 0;
+    for (const [px, py] of pxPts) {
+      const rNorm = Math.hypot((px - cx) / rx, (py - cy) / ry);
+      radErrSum += Math.abs(rNorm - 1);
+    }
+    const meanRadErr = radErrSum / pxPts.length;
+
+    // Axis-aligned rectangle edge fit error
+    let rectErrSum = 0;
+    for (const [px, py] of pxPts) {
+      const dx = Math.min(Math.abs(px - minX), Math.abs(px - maxX));
+      const dy = Math.min(Math.abs(py - minY), Math.abs(py - maxY));
+      rectErrSum += Math.min(dx, dy);
+    }
+    const meanRectErr = rectErrSum / (pxPts.length * Math.max(12, diag));
+
+    const simplified = rdpSimplifyPx(pxPts, Math.max(10, diag * 0.1));
+    const verts = simplified.slice(0, -1);
+    if (
+      verts.length >= 2 &&
+      Math.hypot(verts[verts.length - 1][0] - verts[0][0], verts[verts.length - 1][1] - verts[0][1]) <
+        Math.max(22, diag * 0.16)
+    ) {
+      verts.pop();
+    }
+
+    if (verts.length === 3 && meanRadErr > 0.14) {
+      const tri = [...verts, verts[0]].map(([x, y]) => toNorm(x, y));
+      return { kind: 'triangle', points: tri };
+    }
+
+    if (meanRectErr < 0.055 && (verts.length === 4 || verts.length === 5)) {
+      const rectPx: Array<[number, number]> = [
+        [minX, minY],
+        [maxX, minY],
+        [maxX, maxY],
+        [minX, maxY],
+        [minX, minY],
+      ];
+      return { kind: 'rect', points: rectPx.map(([x, y]) => toNorm(x, y)) };
+    }
+
+    if (meanRadErr < 0.19) {
+      const isCircle = Math.min(rx, ry) / Math.max(rx, ry) >= 0.78;
+      const erx = isCircle ? (rx + ry) / 2 : rx;
+      const ery = isCircle ? (rx + ry) / 2 : ry;
+      const steps = 48;
+      const ring: Array<[number, number]> = [];
+      for (let i = 0; i <= steps; i++) {
+        const theta = (i / steps) * Math.PI * 2;
+        ring.push(toNorm(cx + Math.cos(theta) * erx, cy + Math.sin(theta) * ery));
+      }
+      return { kind: isCircle ? 'circle' : 'ellipse', points: ring };
+    }
+
+    if (verts.length === 4) {
+      const quad = [...verts, verts[0]].map(([x, y]) => toNorm(x, y));
+      return { kind: 'rect', points: quad };
+    }
+  }
+
+  // 2. One-stroke Arrow detection: shaft start -> tip, then sharp fold-back arrowhead
+  if (pxPts.length >= 6) {
+    let tipIdx = -1;
+    let maxDist = 0;
+    for (let i = Math.floor(pxPts.length * 0.4); i < pxPts.length - 1; i++) {
+      const d = Math.hypot(pxPts[i][0] - startPx[0], pxPts[i][1] - startPx[1]);
+      if (d > maxDist) {
+        maxDist = d;
+        tipIdx = i;
+      }
+    }
+    if (tipIdx > 0 && maxDist >= 42) {
+      let hookLen = 0;
+      for (let i = tipIdx + 1; i < pxPts.length; i++) {
+        hookLen += Math.hypot(pxPts[i][0] - pxPts[i - 1][0], pxPts[i][1] - pxPts[i - 1][1]);
+      }
+      const tipPx = pxPts[tipIdx];
+      const tipToEnd = Math.hypot(endPx[0] - tipPx[0], endPx[1] - tipPx[1]);
+      const ux = (tipPx[0] - startPx[0]) / maxDist;
+      const uy = (tipPx[1] - startPx[1]) / maxDist;
+      const endDeltaLen = Math.max(1, tipToEnd);
+      const backDot =
+        ((endPx[0] - tipPx[0]) * ux + (endPx[1] - tipPx[1]) * uy) / endDeltaLen;
+
+      if (
+        hookLen >= 16 &&
+        hookLen <= maxDist * 0.65 &&
+        tipToEnd >= 12 &&
+        tipToEnd <= Math.max(48, maxDist * 0.38) &&
+        backDot < -0.25
+      ) {
+        const headLen = Math.max(16, Math.min(34, maxDist * 0.22));
+        const wingSpread = headLen * 0.56;
+        const nx = -uy;
+        const ny = ux;
+        const wing1: [number, number] = [
+          tipPx[0] - ux * headLen + nx * wingSpread,
+          tipPx[1] - uy * headLen + ny * wingSpread,
+        ];
+        const wing2: [number, number] = [
+          tipPx[0] - ux * headLen - nx * wingSpread,
+          tipPx[1] - uy * headLen - ny * wingSpread,
+        ];
+        return {
+          kind: 'arrow',
+          points: [
+            toNorm(startPx[0], startPx[1]),
+            toNorm(tipPx[0], tipPx[1]),
+            toNorm(wing1[0], wing1[1]),
+            toNorm(tipPx[0], tipPx[1]),
+            toNorm(wing2[0], wing2[1]),
+          ],
+        };
+      }
+    }
+  }
+
+  // 3. Fallback: crisp Straight Line
+  if (directSpan < 24) return null;
+  return { kind: 'line', points: [points[0], points[points.length - 1]] };
 }
 
 export function translateStroke(

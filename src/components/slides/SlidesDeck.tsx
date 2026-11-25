@@ -11,28 +11,37 @@ import {
   ArrowLeftRight,
   ArrowUpDown,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ClipboardPaste,
   Copy,
+  Download,
   Eraser,
+  Feather,
   FileDown,
   FilePlus2,
   GripVertical,
   Hand,
+  Highlighter,
   Lasso,
   LayoutGrid,
+  List,
   Maximize2,
   Minimize2,
   Palette,
   PanelBottomClose,
   PanelBottomOpen,
   PenTool,
-  RotateCcw,
+  Redo2,
+  Shapes,
   ShieldCheck,
   Sparkles,
   SquareDashed,
   Trash2,
+  Undo2,
+  Upload,
   X,
   ZoomIn,
   ZoomOut,
@@ -48,6 +57,8 @@ import {
 import {
   clearDeckInk,
   clearDeckSnippets,
+  exportDeckBackup,
+  importDeckBackup,
   loadCustomBlankPages,
   loadDeckInk,
   loadDeckSnippets,
@@ -61,6 +72,7 @@ import {
   buildOrderedDeckEntries,
   cloneStrokesWithOffset,
   detectInAppBrowser,
+  drawStrokeOnContext,
   isStylusTouch,
   renderStrokesForExport,
   resolveSwipeDirection,
@@ -71,12 +83,14 @@ import {
   type InkStroke,
   type LaserStyle,
   type NavDirection,
+  type PenStyle,
   type PrintScope,
   type RenderedInkExport,
   type SelectionShape,
   type SlideBBox,
   type SlideLang,
   type SlideSnippet,
+  type SnapShapeMode,
   type ToolbarDock,
 } from '../../slides/inkUtils';
 import { MiniScene3D } from './MiniScene3D';
@@ -109,10 +123,44 @@ function getLastSlideEntryStorageKey(storageDeckId: string): string {
 
 const PEN_COLORS = [
   { color: '#0f172a', label: 'ดำ', labelEn: 'Black' },
-  { color: '#dc2626', label: 'แดง', labelEn: 'Red' },
   { color: '#2563eb', label: 'น้ำเงิน', labelEn: 'Blue' },
+  { color: '#dc2626', label: 'แดง', labelEn: 'Red' },
   { color: '#059669', label: 'เขียว', labelEn: 'Green' },
+  { color: '#7c3aed', label: 'ม่วง', labelEn: 'Violet' },
+  { color: '#d97706', label: 'ส้ม', labelEn: 'Amber' },
 ];
+
+const HIGHLIGHTER_COLORS = [
+  { color: '#fef08a', label: 'เหลือง', labelEn: 'Yellow' },
+  { color: '#fbcfe8', label: 'ชมพู', labelEn: 'Pink' },
+  { color: '#bbf7d0', label: 'เขียวมิ้นต์', labelEn: 'Mint' },
+  { color: '#bae6fd', label: 'ฟ้า', labelEn: 'Sky' },
+  { color: '#fed7aa', label: 'ส้มอ่อน', labelEn: 'Peach' },
+  { color: '#ddd6fe', label: 'ม่วงอ่อน', labelEn: 'Lavender' },
+];
+
+function SlideMiniInkPreview({ strokes }: { strokes: InkStroke[] }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const scale = cv.width / 1280;
+    for (const st of strokes) {
+      drawStrokeOnContext(ctx, st, cv.width, cv.height, scale, 0);
+    }
+  }, [strokes]);
+  return (
+    <canvas
+      ref={ref}
+      width={220}
+      height={124}
+      className="absolute inset-0 w-full h-full pointer-events-none"
+    />
+  );
+}
 
 const EXTENDED_PEN_COLORS = [
   { color: '#0f172a', label: 'ดำ', labelEn: 'Black' },
@@ -364,6 +412,17 @@ function SlidesDeckInner({
   const [clipboardSnippets, setClipboardSnippets] = useState<SlideSnippet[]>([]);
   const [selectTrigger, setSelectTrigger] = useState<{ indices: number[]; seq: number } | null>(null);
   const [laserStyle, setLaserStyle] = useState<LaserStyle>('trail');
+  const [penStyle, setPenStyle] = useState<PenStyle>('mono');
+  const [snapShapeMode, setSnapShapeMode] = useState<SnapShapeMode>('smart');
+  const [highlighterColor, setHighlighterColor] = useState('#fef08a');
+  const [highlighterWidth, setHighlighterWidth] = useState(18);
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
+  const [quickRowOpen, setQuickRowOpen] = useState(true);
+  const [sizePopoverOpen, setSizePopoverOpen] = useState(false);
+  const [overviewMode, setOverviewMode] = useState<'list' | 'grid'>('list');
+  const [dragBlankId, setDragBlankId] = useState<number | null>(null);
+  const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [strokesBySlide, setStrokesBySlide] = useState<Record<number, InkStroke[]>>({});
   const strokesRef = useRef<Record<number, InkStroke[]>>({});
@@ -384,6 +443,8 @@ function SlidesDeckInner({
   } | null>(null);
   const undoHistoryRef = useRef<Record<number, InkStroke[][]>>({});
   const [undoCountBySlide, setUndoCountBySlide] = useState<Record<number, number>>({});
+  const redoHistoryRef = useRef<Record<number, InkStroke[][]>>({});
+  const [redoCountBySlide, setRedoCountBySlide] = useState<Record<number, number>>({});
   const [customPages, setCustomPages] = useState<CustomBlankPage[]>([]);
   const customPagesRef = useRef<CustomBlankPage[]>([]);
 
@@ -672,6 +733,8 @@ function SlidesDeckInner({
         const nextHistory = [...prevHistory, prevList].slice(-40);
         undoHistoryRef.current[slideId] = nextHistory;
         setUndoCountBySlide((prev) => ({ ...prev, [slideId]: nextHistory.length }));
+        redoHistoryRef.current[slideId] = [];
+        setRedoCountBySlide((prev) => ({ ...prev, [slideId]: 0 }));
       }
       const nextMap = { ...strokesRef.current, [slideId]: nextList };
       strokesRef.current = nextMap;
@@ -722,11 +785,64 @@ function SlidesDeckInner({
     }
   }, [activeId, clipboardSnippets, clipboardStrokes, updateSlideSnippets, updateSlideStrokes]);
 
+  const handleUndoStroke = useCallback(() => {
+    const cur = strokesRef.current[activeId] ?? [];
+    const stack = undoHistoryRef.current[activeId] ?? [];
+    if (stack.length > 0) {
+      const restored = stack[stack.length - 1];
+      const nextStack = stack.slice(0, -1);
+      undoHistoryRef.current[activeId] = nextStack;
+      setUndoCountBySlide((prev) => ({ ...prev, [activeId]: nextStack.length }));
+      const nextRedo = [...(redoHistoryRef.current[activeId] ?? []), cur].slice(-40);
+      redoHistoryRef.current[activeId] = nextRedo;
+      setRedoCountBySlide((prev) => ({ ...prev, [activeId]: nextRedo.length }));
+      updateSlideStrokes(activeId, () => restored, false);
+      return;
+    }
+    if (cur.length > 0) {
+      const nextRedo = [...(redoHistoryRef.current[activeId] ?? []), cur].slice(-40);
+      redoHistoryRef.current[activeId] = nextRedo;
+      setRedoCountBySlide((prev) => ({ ...prev, [activeId]: nextRedo.length }));
+      updateSlideStrokes(activeId, (prev) => prev.slice(0, -1), false);
+    }
+  }, [activeId, updateSlideStrokes]);
+
+  const handleRedoStroke = useCallback(() => {
+    const rStack = redoHistoryRef.current[activeId] ?? [];
+    if (rStack.length === 0) return;
+    const restored = rStack[rStack.length - 1];
+    const nextRedo = rStack.slice(0, -1);
+    redoHistoryRef.current[activeId] = nextRedo;
+    setRedoCountBySlide((prev) => ({ ...prev, [activeId]: nextRedo.length }));
+    const cur = strokesRef.current[activeId] ?? [];
+    const nextUndo = [...(undoHistoryRef.current[activeId] ?? []), cur].slice(-40);
+    undoHistoryRef.current[activeId] = nextUndo;
+    setUndoCountBySlide((prev) => ({ ...prev, [activeId]: nextUndo.length }));
+    updateSlideStrokes(activeId, () => restored, false);
+  }, [activeId, updateSlideStrokes]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setExportMenuOpen(false);
         setColorPickerOpen(false);
+        setSizePopoverOpen(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedoStroke();
+        } else {
+          handleUndoStroke();
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        handleRedoStroke();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
@@ -793,6 +909,8 @@ function SlidesDeckInner({
     goNext,
     goPrev,
     handlePasteClipboard,
+    handleRedoStroke,
+    handleUndoStroke,
     navDirection,
     toggleFullscreen,
     toolMode,
@@ -991,17 +1109,156 @@ function SlidesDeckInner({
     [activeId, activeLoc],
   );
 
-  const handleUndoStroke = () => {
-    const stack = undoHistoryRef.current[activeId] ?? [];
-    if (stack.length > 0) {
-      const restored = stack[stack.length - 1];
-      const nextStack = stack.slice(0, -1);
-      undoHistoryRef.current[activeId] = nextStack;
-      setUndoCountBySlide((prev) => ({ ...prev, [activeId]: nextStack.length }));
-      updateSlideStrokes(activeId, () => restored, false);
-      return;
+  const handleStepBlankPage = useCallback(
+    (pageId: number, dir: -1 | 1) => {
+      const entries = buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, customPagesRef.current);
+      const curIdx = entries.findIndex((e) => e.id === pageId);
+      const targetIdx = curIdx + dir;
+      if (curIdx < 0 || targetIdx < 0 || targetIdx >= entries.length) return;
+      const curEntry = entries[curIdx];
+      if (curEntry.kind !== 'blank') return;
+      const targetEntry = entries[targetIdx];
+
+      const curPages = customPagesRef.current.slice();
+      const targetAnchor =
+        targetEntry.kind === 'builtin'
+          ? dir === -1
+            ? (() => {
+                const prevBuiltin = entries
+                  .slice(0, targetIdx)
+                  .reverse()
+                  .find((e) => e.kind === 'builtin');
+                return prevBuiltin && prevBuiltin.kind === 'builtin' ? prevBuiltin.slide.id : null;
+              })()
+            : targetEntry.slide.id
+          : targetEntry.page.afterSlideId;
+
+      if (targetAnchor === null) return;
+
+      const updated = curPages.map((p) => {
+        if (p.id === pageId) {
+          return {
+            ...p,
+            afterSlideId: targetAnchor,
+            order:
+              targetEntry.kind === 'blank'
+                ? targetEntry.page.order + dir * 5
+                : dir === 1
+                  ? -100
+                  : 100000,
+          };
+        }
+        return p;
+      });
+
+      const byAnchor = new Map<number, CustomBlankPage[]>();
+      for (const p of updated) {
+        const list = byAnchor.get(p.afterSlideId) ?? [];
+        list.push(p);
+        byAnchor.set(p.afterSlideId, list);
+      }
+      const normalized: CustomBlankPage[] = [];
+      for (const list of byAnchor.values()) {
+        list.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+        list.forEach((item, i) => normalized.push({ ...item, order: (i + 1) * 10 }));
+      }
+      customPagesRef.current = normalized;
+      setCustomPages(normalized);
+      void saveCustomBlankPages(storageDeckId, normalized);
+      if (activeId === pageId) {
+        const nextOrdered = buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, normalized);
+        const newIdx = nextOrdered.findIndex((e) => e.id === pageId);
+        if (newIdx >= 0) setSlideIdx(newIdx);
+      }
+    },
+    [activeId, storageDeckId],
+  );
+
+  const handleMoveBlankAfterAnchor = useCallback(
+    (pageId: number, targetAnchorSlideId: number) => {
+      const updated = customPagesRef.current.map((p) =>
+        p.id === pageId ? { ...p, afterSlideId: targetAnchorSlideId, order: 99999 } : p,
+      );
+      const byAnchor = new Map<number, CustomBlankPage[]>();
+      for (const p of updated) {
+        const list = byAnchor.get(p.afterSlideId) ?? [];
+        list.push(p);
+        byAnchor.set(p.afterSlideId, list);
+      }
+      const normalized: CustomBlankPage[] = [];
+      for (const list of byAnchor.values()) {
+        list.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+        list.forEach((item, i) => normalized.push({ ...item, order: (i + 1) * 10 }));
+      }
+      customPagesRef.current = normalized;
+      setCustomPages(normalized);
+      void saveCustomBlankPages(storageDeckId, normalized);
+    },
+    [storageDeckId],
+  );
+
+  const handleExportJsonBackup = useCallback(async () => {
+    const payload = await exportDeckBackup(storageDeckId, legacyInkKey);
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    a.download = `eng-math-2-${storageDeckId}-backup-${dateStamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setBackupStatusMsg(
+      isEn ? 'Backup file downloaded (.json).' : 'ดาวน์โหลดไฟล์สำรองโน้ต (.json) เรียบร้อย',
+    );
+    window.setTimeout(() => setBackupStatusMsg(null), 3500);
+  }, [isEn, legacyInkKey, storageDeckId]);
+
+  const handleImportJsonFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      const hasExisting =
+        Object.values(strokesRef.current).some((l) => l.length > 0) ||
+        customPagesRef.current.length > 0 ||
+        Object.values(snippetsRef.current).some((l) => l.length > 0);
+      let mode: 'replace' | 'merge' = 'replace';
+      if (hasExisting) {
+        const replaceConfirm = window.confirm(
+          isEn
+            ? 'Press OK to REPLACE current notes with the backup, or Cancel to MERGE into existing notes.'
+            : 'กด OK เพื่อเขียนทับโน้ตเดิมทั้งหมดด้วยไฟล์สำรอง หรือกด Cancel เพื่อผสานรวมเข้ากับโน้ตที่มีอยู่',
+        );
+        mode = replaceConfirm ? 'replace' : 'merge';
+      }
+      const res = await importDeckBackup(storageDeckId, parsed, mode, legacyInkKey);
+      undoHistoryRef.current = {};
+      redoHistoryRef.current = {};
+      setUndoCountBySlide({});
+      setRedoCountBySlide({});
+      strokesRef.current = res.strokesBySlide;
+      setStrokesBySlide(res.strokesBySlide);
+      customPagesRef.current = res.customPages;
+      setCustomPages(res.customPages);
+      snippetsRef.current = res.snippetsBySlide;
+      setSnippetsBySlide(res.snippetsBySlide);
+      setBackupStatusMsg(
+        isEn ? 'Notes restored from backup!' : 'นำเข้าโน้ตจากไฟล์สำรองเรียบร้อยแล้ว',
+      );
+      window.setTimeout(() => setBackupStatusMsg(null), 3500);
+    } catch {
+      setBackupStatusMsg(
+        isEn
+          ? 'Could not read backup file — please choose a valid .json export.'
+          : 'ไม่สามารถอ่านไฟล์ได้ กรุณาเลือกไฟล์ .json ที่ส่งออกจากแอปนี้',
+      );
+      window.setTimeout(() => setBackupStatusMsg(null), 4500);
     }
-    updateSlideStrokes(activeId, (prev) => (prev.length === 0 ? prev : prev.slice(0, -1)), false);
   };
 
   const handleClearSlideInk = () => {
@@ -1014,7 +1271,9 @@ function SlidesDeckInner({
       : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดในเวอร์ชันภาษาไทยหรือไม่? (ลายมือในเวอร์ชันภาษาอังกฤษจะถูกแยกเก็บและไม่ถูกลบ)';
     if (window.confirm(confirmMsg)) {
       undoHistoryRef.current = {};
+      redoHistoryRef.current = {};
       setUndoCountBySlide({});
+      setRedoCountBySlide({});
       strokesRef.current = {};
       setStrokesBySlide({});
       snippetsRef.current = {};
@@ -1494,6 +1753,7 @@ function SlidesDeckInner({
 
   const currentStrokes = strokesBySlide[activeId] ?? [];
   const canUndo = (undoCountBySlide[activeId] ?? 0) > 0 || currentStrokes.length > 0;
+  const canRedo = (redoCountBySlide[activeId] ?? 0) > 0;
   const annotatedSlideCount = Object.values(strokesBySlide).filter(
     (list) => Array.isArray(list) && list.length > 0,
   ).length;
@@ -1983,6 +2243,42 @@ function SlidesDeckInner({
                     </div>
                   </button>
 
+                  <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                    <div className="text-[11px] font-bold text-slate-500 px-1">
+                      {isEn ? 'Backup & Restore Notes (.json):' : 'สำรองและกู้คืนโน้ตทั้งบท (.json):'}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void handleExportJsonBackup()}
+                        className="inline-flex items-center justify-center gap-1 px-2 py-2 rounded-xl border border-sky-200 bg-sky-50/70 hover:bg-sky-100 text-sky-900 font-bold text-[11px] transition"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Backup .json' : 'สำรองไฟล์'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => backupFileInputRef.current?.click()}
+                        className="inline-flex items-center justify-center gap-1 px-2 py-2 rounded-xl border border-violet-200 bg-violet-50/70 hover:bg-violet-100 text-violet-900 font-bold text-[11px] transition"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Import .json' : 'นำเข้าไฟล์'}</span>
+                      </button>
+                    </div>
+                    <input
+                      ref={backupFileInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={(e) => void handleImportJsonFile(e)}
+                      className="hidden"
+                    />
+                    {backupStatusMsg && (
+                      <div className="px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-800">
+                        {backupStatusMsg}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="px-2.5 py-2 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] leading-snug text-amber-900">
                     {isEn
                       ? 'Default layout is A4 Landscape — on iPad/Safari, if the preview opens in Portrait you can switch Orientation to Landscape (slides still fit cleanly without clipping either way).'
@@ -2069,27 +2365,222 @@ function SlidesDeckInner({
 
         {/* Main Stage */}
         <div className="relative flex-1 min-h-0 flex overflow-hidden">
-          {/* Overview Drawer */}
+          {/* Overview Drawer / Thumbnail Grid Modal */}
           {overviewOpen && (
-            <aside className="w-76 shrink-0 border-r border-slate-200 bg-white overflow-y-auto custom-scrollbar p-3 space-y-1.5 z-30">
-              <div className="flex items-center justify-between gap-2 px-1 pb-1">
-                <div className="text-xs sm:text-sm font-bold text-slate-600">
+            <aside
+              className={
+                overviewMode === 'grid'
+                  ? 'fixed inset-x-3 top-14 bottom-14 md:inset-x-8 rounded-2xl border border-slate-200 bg-white/98 backdrop-blur-md shadow-2xl z-40 flex flex-col p-4 overflow-hidden'
+                  : 'w-80 shrink-0 border-r border-slate-200 bg-white overflow-y-auto custom-scrollbar p-3 space-y-1.5 z-30'
+              }
+            >
+              <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2 border-b border-slate-100">
+                <div className="text-xs sm:text-sm font-bold text-slate-700">
                   {isEn
                     ? `Chapter 1 (${totalEntries} pages)`
                     : `สารบัญบทที่ 1 (${totalEntries} หน้า)`}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleInsertBlankPage('grid')}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold text-emerald-800 transition"
-                >
-                  <FilePlus2 className="w-3 h-3" />
-                  <span>{isEn ? '+ Blank' : '+ หน้าเปล่า'}</span>
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setOverviewMode('list')}
+                      title={isEn ? 'List view' : 'มุมมองรายการ'}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md transition ${
+                        overviewMode === 'list'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <List className="w-3 h-3" />
+                      <span>{isEn ? 'List' : 'รายการ'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOverviewMode('grid')}
+                      title={isEn ? 'Thumbnail grid view & reorder' : 'มุมมองตาราง & จัดลำดับหน้า'}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md transition ${
+                        overviewMode === 'grid'
+                          ? 'bg-white text-sky-700 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <LayoutGrid className="w-3 h-3" />
+                      <span>{isEn ? 'Grid' : 'ตาราง'}</span>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertBlankPage('grid')}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold text-emerald-800 transition"
+                  >
+                    <FilePlus2 className="w-3 h-3" />
+                    <span>{isEn ? '+ Blank' : '+ หน้าเปล่า'}</span>
+                  </button>
+                  {overviewMode === 'grid' && (
+                    <button
+                      type="button"
+                      onClick={() => setOverviewOpen(false)}
+                      aria-label={isEn ? 'Close grid view' : 'ปิดหน้าต่างตาราง'}
+                      className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {overviewMode === 'grid' && (
+                <div className="shrink-0 text-[11px] text-slate-500 px-1 py-1.5">
+                  {isEn
+                    ? 'Tip: Drag a Blank Note sheet onto any slide (or use ◀ ▶ arrows) to reorder it.'
+                    : 'เคล็ดลับ: ลากหน้ากระดาษเปล่าไปวางต่อท้ายสไลด์ที่ต้องการ หรือกดลูกศร ◀ ▶ เพื่อย้ายตำแหน่งหน้า'}
+                </div>
+              )}
+
+              <div
+                className={
+                  overviewMode === 'grid'
+                    ? 'flex-1 min-h-0 overflow-y-auto custom-scrollbar grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 pt-1'
+                    : 'space-y-1.5 pt-1'
+                }
+              >
               {orderedEntries.map((entry, idx) => {
-                const hasInk = (strokesBySlide[entry.id]?.length ?? 0) > 0;
+                const pageStrokes = strokesBySlide[entry.id] ?? [];
+                const pageSnippets = snippetsBySlide[entry.id] ?? [];
+                const hasInk = pageStrokes.length > 0 || pageSnippets.length > 0;
                 const isSelected = idx === safeSlideIdx;
+                const anchorSlideId =
+                  entry.kind === 'builtin' ? entry.slide.id : entry.page.afterSlideId;
+
+                if (overviewMode === 'grid') {
+                  return (
+                    <div
+                      key={entry.id}
+                      draggable={entry.kind === 'blank'}
+                      onDragStart={() => {
+                        if (entry.kind === 'blank') setDragBlankId(entry.id);
+                      }}
+                      onDragEnd={() => setDragBlankId(null)}
+                      onDragOver={(e) => {
+                        if (dragBlankId !== null && dragBlankId !== entry.id) e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (dragBlankId !== null && dragBlankId !== entry.id) {
+                          handleMoveBlankAfterAnchor(dragBlankId, anchorSlideId);
+                          setDragBlankId(null);
+                        }
+                      }}
+                      className={`group rounded-2xl border p-2 flex flex-col gap-1.5 transition ${
+                        isSelected
+                          ? entry.kind === 'blank'
+                            ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-300'
+                            : 'border-sky-500 bg-sky-50/70 ring-2 ring-sky-300'
+                          : 'border-slate-200 bg-white hover:border-sky-300 hover:shadow-md'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectTrigger(null);
+                          setSlideIdx(idx);
+                          setOverviewOpen(false);
+                        }}
+                        className="text-left w-full"
+                      >
+                        <div
+                          className={`relative aspect-[16/10] w-full rounded-xl border overflow-hidden p-2 flex flex-col justify-between ${
+                            entry.kind === 'blank'
+                              ? 'border-dashed border-emerald-300 bg-white'
+                              : 'border-slate-200 bg-gradient-to-br from-slate-50 to-white'
+                          }`}
+                          style={
+                            entry.kind === 'blank'
+                              ? getBlankPaperStyleCss(entry.page.paperStyle)
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center justify-between gap-1 text-[10px] font-bold">
+                            <span
+                              className={`px-1.5 py-0.5 rounded ${
+                                entry.kind === 'blank'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-sky-100 text-sky-800'
+                              }`}
+                            >
+                              #{idx + 1}
+                            </span>
+                            {hasInk && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                {pageStrokes.length > 0 ? `${pageStrokes.length}` : 'สูตร'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight pr-1">
+                            {entry.kind === 'blank'
+                              ? isEn
+                                ? `Blank Note #${entry.blankIndexAfterSlide}`
+                                : `กระดาษจด #${entry.blankIndexAfterSlide}`
+                              : isEn
+                                ? entry.slide.titleEn
+                                : entry.slide.titleTh}
+                          </div>
+                          {pageStrokes.length > 0 && <SlideMiniInkPreview strokes={pageStrokes} />}
+                        </div>
+                      </button>
+
+                      <div className="flex items-center justify-between gap-1 text-[10px]">
+                        <span className="font-semibold text-slate-500 truncate">
+                          {entry.kind === 'blank'
+                            ? isEn
+                              ? 'Blank Sheet'
+                              : 'กระดาษจด'
+                            : entry.slide.kind === 'example'
+                              ? isEn
+                                ? 'Example'
+                                : 'โจทย์'
+                              : entry.slide.embed3D
+                                ? '3D'
+                                : isEn
+                                  ? 'Concept'
+                                  : 'เนื้อหา'}
+                        </span>
+                        {entry.kind === 'blank' && (
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={idx <= 1}
+                              onClick={() => handleStepBlankPage(entry.id, -1)}
+                              title={isEn ? 'Move earlier' : 'ย้ายขึ้นก่อนหน้า'}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-35"
+                            >
+                              <ChevronLeft className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx >= orderedEntries.length - 1}
+                              onClick={() => handleStepBlankPage(entry.id, 1)}
+                              title={isEn ? 'Move later' : 'ย้ายไปหน้าถัดไป'}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-35"
+                            >
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBlankPage(entry.id)}
+                              title={isEn ? 'Delete blank page' : 'ลบหน้านี้'}
+                              className="p-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
                 if (entry.kind === 'blank') {
                   return (
                     <div key={entry.id} className="flex items-stretch gap-1 pl-2">
@@ -2130,6 +2621,26 @@ function SlidesDeckInner({
                             : `กระดาษจดเพิ่มเติม #${entry.blankIndexAfterSlide}`}
                         </div>
                       </button>
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          disabled={idx <= 1}
+                          onClick={() => handleStepBlankPage(entry.id, -1)}
+                          title={isEn ? 'Move page up' : 'เลื่อนขึ้น'}
+                          className="px-1.5 py-0.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 disabled:opacity-35"
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx >= orderedEntries.length - 1}
+                          onClick={() => handleStepBlankPage(entry.id, 1)}
+                          title={isEn ? 'Move page down' : 'เลื่อนลง'}
+                          className="px-1.5 py-0.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 disabled:opacity-35"
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleDeleteBlankPage(entry.id)}
@@ -2188,6 +2699,7 @@ function SlidesDeckInner({
                   </button>
                 );
               })}
+              </div>
             </aside>
           )}
 
@@ -2256,6 +2768,7 @@ function SlidesDeckInner({
                   onClick={() => {
                     setDrawEnabled(true);
                     setToolMode('pen');
+                    setQuickRowOpen(true);
                   }}
                   title={isEn ? 'Enter Write mode (Shortcut: W)' : 'เข้าสู่โหมดเขียน (คีย์ลัด W)'}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold shadow-sm transition active:scale-95"
@@ -2268,6 +2781,7 @@ function SlidesDeckInner({
                   onClick={() => {
                     setDrawEnabled(true);
                     setToolMode('laser');
+                    setQuickRowOpen(true);
                   }}
                   title={isEn ? 'Turn on laser pointer (Shortcut: L)' : 'เปิดเลเซอร์ชี้จุด (คีย์ลัด L)'}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-bold transition active:scale-95"
@@ -2278,31 +2792,20 @@ function SlidesDeckInner({
               </div>
             )}
 
-            {/* Floating Repositionable Write Toolbar when Write/Laser mode is active (zero layout shift) */}
+            {/* Notability-Style Compact Dual-Row Floating Pill Toolbar */}
             {drawEnabled && (() => {
-              const isVertBar = toolbarPos === 'left' || toolbarPos === 'right';
               const dockPosClass = customToolbarPos
-                ? isVertBar
-                  ? 'flex-col items-stretch'
-                  : 'max-w-[96%] flex-row flex-wrap items-center'
+                ? 'flex-col'
                 : toolbarPos === 'top'
-                  ? 'top-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
-                  : toolbarPos === 'bottom'
-                    ? 'bottom-2.5 left-1/2 -translate-x-1/2 max-w-[96%] flex-row flex-wrap items-center'
-                    : toolbarPos === 'left'
-                      ? 'left-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch'
-                      : 'right-2.5 top-1/2 -translate-y-1/2 flex-col items-stretch';
-              const palettePopoverPosClass = customToolbarPos
+                  ? 'top-2.5 left-1/2 -translate-x-1/2 flex-col'
+                  : 'bottom-2.5 left-1/2 -translate-x-1/2 flex-col';
+              const popoverPosClass = customToolbarPos
                 ? customToolbarPos.y > STAGE_HEIGHT * stageScale * 0.5
-                  ? 'bottom-full mb-2 left-0'
-                  : 'top-full mt-2 left-0'
-                : toolbarPos === 'bottom'
-                  ? 'bottom-full mb-2 left-0'
-                  : toolbarPos === 'top'
-                    ? 'top-full mt-2 left-0'
-                    : toolbarPos === 'left'
-                      ? 'left-full ml-2 top-0'
-                      : 'right-full mr-2 top-0';
+                  ? 'bottom-full mb-2 right-0'
+                  : 'top-full mt-2 right-0'
+                : toolbarPos === 'top'
+                  ? 'top-full mt-2 right-0'
+                  : 'bottom-full mb-2 right-0';
 
               const handleToolbarPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
                 const target = e.target as HTMLElement | null;
@@ -2363,6 +2866,29 @@ function SlidesDeckInner({
                 }
               };
 
+              const selectMainTool = (targetTool: AnnotationTool) => {
+                setColorPickerOpen(false);
+                setSizePopoverOpen(false);
+                if (toolMode === targetTool) {
+                  setQuickRowOpen((o) => !o);
+                } else {
+                  setToolMode(targetTool);
+                  setQuickRowOpen(true);
+                }
+              };
+
+              const isHl = toolMode === 'highlighter';
+              const activeSwatches = isHl ? HIGHLIGHTER_COLORS : PEN_COLORS;
+              const activeInkColor = isHl ? highlighterColor : penColor;
+              const activeInkWidth =
+                toolMode === 'eraser' ? eraserSize : isHl ? highlighterWidth : penWidth;
+              const previewDotPx =
+                toolMode === 'eraser'
+                  ? Math.max(6, Math.min(18, eraserSize * 1.4))
+                  : isHl
+                    ? Math.max(8, Math.min(20, highlighterWidth * 0.65))
+                    : Math.max(4, Math.min(16, penWidth * 1.6));
+
               return (
                 <div
                   ref={toolbarRef}
@@ -2376,117 +2902,584 @@ function SlidesDeckInner({
                       ? { left: customToolbarPos.x, top: customToolbarPos.y }
                       : undefined
                   }
-                  className={`absolute z-40 rounded-xl border border-amber-300 bg-amber-50/95 backdrop-blur-md p-[4px] shadow-xl flex gap-[4px] text-[13px] touch-none ${dockPosClass}`}
+                  className={`absolute z-40 max-w-[95vw] rounded-2xl border border-amber-300 bg-amber-50/95 text-slate-800 backdrop-blur-md shadow-xl flex touch-none ${dockPosClass}`}
                 >
-                  {/* Drag Handle (Finger / Apple Pencil / Mouse) */}
-                  <div
-                    data-toolbar-drag="true"
-                    title={
-                      isEn
-                        ? 'Drag with finger, stylus, or mouse to move toolbar'
-                        : 'ลากด้วยนิ้ว ปากกา หรือเมาส์ เพื่อย้ายตำแหน่งแถบเครื่องมือ'
-                    }
-                    className={`inline-flex items-center justify-center rounded-[8px] text-amber-700 hover:bg-amber-100 cursor-grab active:cursor-grabbing touch-none ${
-                      isVertBar ? 'py-[3px] border-b border-amber-200/80' : 'px-[3px]'
-                    }`}
-                  >
-                    <GripVertical className={`w-4 h-4 ${isVertBar ? 'rotate-90' : ''}`} />
-                  </div>
-                  {/* Prominent 1-tap Exit Write Mode button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDrawEnabled(false);
-                      setColorPickerOpen(false);
-                    }}
-                    title={
-                      isEn
-                        ? 'Switch back to view-only mode (Shortcut: W)'
-                        : 'สลับกลับไปโหมดดูอย่างเดียว (คีย์ลัด W)'
-                    }
-                    className="inline-flex items-center justify-center gap-1 px-[8px] py-[3px] rounded-[8px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs transition active:scale-95"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Done' : 'เสร็จ'}</span>
-                  </button>
-
-                  {/* Color Swatches + Palette */}
-                  <div
-                    className={`flex items-center gap-[4px] ${
-                      isVertBar
-                        ? 'grid grid-cols-2 py-[3px] border-y border-amber-200/80 justify-items-center'
-                        : 'pl-[5px] border-l border-amber-200'
-                    }`}
-                  >
-                    {PEN_COLORS.map((c) => (
-                      <button
-                        key={c.color}
-                        type="button"
-                        onClick={() => {
-                          setToolMode('pen');
-                          setPenColor(c.color);
-                          setColorPickerOpen(false);
-                        }}
-                        title={isEn ? c.labelEn : c.label}
-                        className={`w-[22px] h-[22px] rounded-full border-2 transition ${
-                          toolMode === 'pen' && penColor === c.color
-                            ? 'border-amber-600 scale-110 shadow'
-                            : 'border-white'
-                        }`}
-                        style={{ backgroundColor: c.color }}
-                      />
-                    ))}
-
-                    <div className={`relative ${isVertBar ? 'col-span-2 w-full' : ''}`}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExportMenuOpen(false);
-                          setColorPickerOpen((o) => !o);
-                        }}
-                        title={isEn ? 'More pen colors or custom color' : 'เลือกสีปากกาเพิ่มเติมหรือกำหนดสีเอง'}
-                        className={`inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[8px] font-semibold border transition ${
-                          isVertBar ? 'w-full' : ''
-                        } ${
-                          colorPickerOpen ||
-                          (toolMode === 'pen' && !PEN_COLORS.some((c) => c.color === penColor))
-                            ? 'border-amber-600 bg-amber-100 text-amber-950 shadow-xs'
-                            : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-50'
-                        }`}
+                  {toolbarCollapsed ? (
+                    <div className="flex items-center gap-1 p-1.5 text-xs">
+                      <div
+                        data-toolbar-drag="true"
+                        title={isEn ? 'Drag toolbar' : 'ลากย้ายแถบ'}
+                        className="px-1 py-1 rounded-lg text-amber-700 hover:bg-amber-100 cursor-grab active:cursor-grabbing touch-none"
                       >
-                        <Palette className="w-3 h-3" />
-                        <span
-                          className="w-[10px] h-[10px] rounded-full border border-slate-300 shrink-0"
-                          style={{ backgroundColor: penColor }}
-                        />
-                        <span>{isEn ? 'Colors' : 'สีเพิ่ม'}</span>
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawEnabled(false);
+                          setColorPickerOpen(false);
+                          setSizePopoverOpen(false);
+                        }}
+                        title={isEn ? 'Done (W)' : 'เสร็จ (W)'}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setToolbarCollapsed(false)}
+                        title={isEn ? 'Expand toolbar' : 'ขยายแถบเครื่องมือ'}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-xs"
+                      >
+                        {toolMode === 'highlighter' ? (
+                          <Highlighter className="w-3.5 h-3.5" />
+                        ) : toolMode === 'eraser' ? (
+                          <Eraser className="w-3.5 h-3.5" />
+                        ) : toolMode === 'select' ? (
+                          <Lasso className="w-3.5 h-3.5" />
+                        ) : (
+                          <PenTool className="w-3.5 h-3.5" />
+                        )}
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleUndoStroke}
+                        disabled={!canUndo}
+                        aria-label={isEn ? 'Undo' : 'ย้อน'}
+                        className="p-1.5 rounded-lg bg-white border border-amber-200 text-slate-700 hover:bg-amber-100 disabled:opacity-35"
+                      >
+                        <Undo2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Row 1: Contextual Quick Bar (folds away when tapping the active main tool button) */}
+                      {quickRowOpen && (
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-amber-200/90 overflow-x-auto">
+                          {(toolMode === 'pen' || toolMode === 'highlighter') && (
+                            <>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {activeSwatches.map((c) => {
+                                  const isSel = activeInkColor.toLowerCase() === c.color.toLowerCase();
+                                  return (
+                                    <button
+                                      key={c.color}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isSel) {
+                                          setSizePopoverOpen(false);
+                                          setColorPickerOpen((o) => !o);
+                                        } else if (isHl) {
+                                          setHighlighterColor(c.color);
+                                        } else {
+                                          setPenColor(c.color);
+                                        }
+                                      }}
+                                      title={isEn ? c.labelEn : c.label}
+                                      aria-label={isEn ? c.labelEn : c.label}
+                                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition ${
+                                        isSel
+                                          ? 'border-slate-900 ring-2 ring-amber-400 scale-110 shadow-sm'
+                                          : 'border-white shadow-xs hover:scale-105'
+                                      }`}
+                                      style={{ backgroundColor: c.color }}
+                                    >
+                                      {isSel && (
+                                        <PenTool
+                                          className={`w-2.5 h-2.5 ${
+                                            isHl || c.color === '#d97706' ? 'text-slate-900' : 'text-white'
+                                          }`}
+                                        />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSizePopoverOpen(false);
+                                    setColorPickerOpen((o) => !o);
+                                  }}
+                                  title={isEn ? 'More colors' : 'สีเพิ่มเติม'}
+                                  aria-label={isEn ? 'More colors' : 'สีเพิ่มเติม'}
+                                  className={`w-6 h-6 rounded-full border flex items-center justify-center transition ${
+                                    colorPickerOpen
+                                      ? 'border-amber-600 bg-amber-500 text-white'
+                                      : 'border-amber-200 bg-white text-slate-700 hover:bg-amber-100'
+                                  }`}
+                                >
+                                  <Palette className="w-3 h-3" />
+                                </button>
+                              </div>
 
+                              <div className="w-px h-5 bg-amber-200 shrink-0" />
+
+                              {/* Direct 1-Tap Size Chips for Pen & Highlighter */}
+                              <div className="flex items-center gap-1 shrink-0 text-[11px] font-bold">
+                                {(isHl ? [12, 18, 28] : [2, 4, 7]).map((w, idx) => {
+                                  const label = isEn
+                                    ? idx === 0
+                                      ? 'S'
+                                      : idx === 1
+                                        ? 'M'
+                                        : 'L'
+                                    : idx === 0
+                                      ? 'เล็ก'
+                                      : idx === 1
+                                        ? 'กลาง'
+                                        : 'หนา';
+                                  const isSelW = isHl ? highlighterWidth === w : penWidth === w;
+                                  return (
+                                    <button
+                                      key={label}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isHl) setHighlighterWidth(w);
+                                        else setPenWidth(w);
+                                      }}
+                                      className={`px-2 py-0.5 rounded-lg border transition ${
+                                        isSelW
+                                          ? isHl
+                                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                                            : 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                                          : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/70'
+                                      }`}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setColorPickerOpen(false);
+                                  setSizePopoverOpen((o) => !o);
+                                }}
+                                title={
+                                  isEn
+                                    ? 'Fine size, fountain pen & smart shapes'
+                                    : 'ปรับขนาดละเอียด แรงกดปากกา และรูปทรงอัตโนมัติ'
+                                }
+                                aria-label={isEn ? 'Pen settings' : 'ตั้งค่าหัวปากกา'}
+                                className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 transition ${
+                                  sizePopoverOpen
+                                    ? 'border-sky-600 bg-sky-50'
+                                    : 'border-amber-300 bg-white hover:border-amber-500'
+                                }`}
+                              >
+                                <span
+                                  className="rounded-full border border-slate-300/60"
+                                  style={{
+                                    width: previewDotPx,
+                                    height: previewDotPx,
+                                    backgroundColor: activeInkColor,
+                                  }}
+                                />
+                              </button>
+                            </>
+                          )}
+
+                          {toolMode === 'eraser' && (
+                            <div className="flex items-center justify-between gap-1.5 w-full text-[11px] font-bold">
+                              <div className="inline-flex items-center rounded-lg bg-white p-0.5 border border-rose-200 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setEraserMode('partial')}
+                                  className={`px-2 py-0.5 rounded-md transition ${
+                                    eraserMode === 'partial'
+                                      ? 'bg-rose-600 text-white shadow-xs'
+                                      : 'text-rose-700 hover:bg-rose-50'
+                                  }`}
+                                >
+                                  {isEn ? 'Partial' : 'บางส่วน'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEraserMode('stroke')}
+                                  className={`px-2 py-0.5 rounded-md transition ${
+                                    eraserMode === 'stroke'
+                                      ? 'bg-rose-600 text-white shadow-xs'
+                                      : 'text-rose-700 hover:bg-rose-50'
+                                  }`}
+                                >
+                                  {isEn ? 'Stroke' : 'ทั้งเส้น'}
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {[3, 6, 12].map((w, idx) => {
+                                  const label = isEn
+                                    ? idx === 0
+                                      ? 'S'
+                                      : idx === 1
+                                        ? 'M'
+                                        : 'L'
+                                    : idx === 0
+                                      ? 'เล็ก'
+                                      : idx === 1
+                                        ? 'กลาง'
+                                        : 'ใหญ่';
+                                  return (
+                                    <button
+                                      key={label}
+                                      type="button"
+                                      onClick={() => setEraserSize(w)}
+                                      className={`px-2 py-0.5 rounded-lg border transition ${
+                                        eraserSize === w
+                                          ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                                          : 'bg-white text-slate-700 border-rose-200 hover:bg-rose-50'
+                                      }`}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setColorPickerOpen(false);
+                                  setSizePopoverOpen((o) => !o);
+                                }}
+                                title={isEn ? 'Fine eraser size' : 'ปรับขนาดยางลบละเอียด'}
+                                aria-label={isEn ? 'Eraser size' : 'ขนาดยางลบ'}
+                                className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 transition ${
+                                  sizePopoverOpen
+                                    ? 'border-rose-600 bg-rose-50'
+                                    : 'border-rose-300 bg-white hover:border-rose-500'
+                                }`}
+                              >
+                                <span
+                                  className="rounded-full bg-rose-500"
+                                  style={{ width: previewDotPx, height: previewDotPx }}
+                                />
+                              </button>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={handleClearSlideInk}
+                                  disabled={currentStrokes.length === 0}
+                                  className="px-2 py-1 rounded-lg bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 disabled:opacity-35 transition"
+                                >
+                                  {isEn ? 'Clear Page' : 'ล้างหน้า'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleClearAllInk}
+                                  disabled={annotatedSlideCount === 0}
+                                  className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 border border-rose-300 text-rose-800 disabled:opacity-35 transition"
+                                >
+                                  {isEn ? 'All' : 'ล้างหมด'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {toolMode === 'laser' && (
+                            <div className="flex items-center justify-between gap-2 w-full text-[11px] font-bold">
+                              <span className="text-red-700 shrink-0">
+                                {isEn ? 'Laser Mode' : 'โหมดเลเซอร์'}
+                              </span>
+                              <div className="inline-flex items-center rounded-lg bg-white p-0.5 border border-red-200">
+                                <button
+                                  type="button"
+                                  onClick={() => setLaserStyle('trail')}
+                                  className={`px-2 py-0.5 rounded-md transition ${
+                                    laserStyle === 'trail'
+                                      ? 'bg-red-600 text-white shadow-xs'
+                                      : 'text-red-700 hover:bg-red-50'
+                                  }`}
+                                >
+                                  {isEn ? 'Trail' : 'วง/ขีดค้าง'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setLaserStyle('dot')}
+                                  className={`px-2 py-0.5 rounded-md transition ${
+                                    laserStyle === 'dot'
+                                      ? 'bg-red-600 text-white shadow-xs'
+                                      : 'text-red-700 hover:bg-red-50'
+                                  }`}
+                                >
+                                  {isEn ? 'Dot' : 'จุดชี้'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {toolMode === 'select' && (
+                            <div className="flex items-center justify-between gap-1.5 w-full text-[11px] font-bold">
+                              <div className="inline-flex items-center rounded-lg bg-white p-0.5 border border-sky-200 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectionShape('lasso')}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition ${
+                                    selectionShape === 'lasso'
+                                      ? 'bg-sky-600 text-white shadow-xs'
+                                      : 'text-sky-800 hover:bg-sky-50'
+                                  }`}
+                                >
+                                  <Lasso className="w-3 h-3" />
+                                  <span>{isEn ? 'Lasso' : 'วงอิสระ'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectionShape('rect')}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition ${
+                                    selectionShape === 'rect'
+                                      ? 'bg-sky-600 text-white shadow-xs'
+                                      : 'text-sky-800 hover:bg-sky-50'
+                                  }`}
+                                >
+                                  <SquareDashed className="w-3 h-3" />
+                                  <span>{isEn ? 'Rect' : 'สี่เหลี่ยม'}</span>
+                                </button>
+                              </div>
+                              {(clipboardStrokes.length > 0 || clipboardSnippets.length > 0) && (() => {
+                                const pasteCount = clipboardStrokes.length + clipboardSnippets.length;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={handlePasteClipboard}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition shrink-0"
+                                  >
+                                    <ClipboardPaste className="w-3 h-3" />
+                                    <span>{isEn ? `Paste (${pasteCount})` : `วาง (${pasteCount})`}</span>
+                                  </button>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Row 2: Main Compact Tool Dock (tapping active tool folds/unfolds Row 1) */}
+                      <div className="flex items-center gap-1 px-2 py-1.5 overflow-x-auto text-xs font-bold">
+                        <div
+                          data-toolbar-drag="true"
+                          title={isEn ? 'Drag toolbar' : 'ลากย้ายตำแหน่งแถบ'}
+                          className="p-1 rounded-lg text-amber-700 hover:bg-amber-100 cursor-grab active:cursor-grabbing touch-none shrink-0"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrawEnabled(false);
+                            setColorPickerOpen(false);
+                            setSizePopoverOpen(false);
+                          }}
+                          title={isEn ? 'Done writing (W)' : 'เสร็จ (W)'}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 shadow-xs transition"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{isEn ? 'Done' : 'เสร็จ'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => selectMainTool('pen')}
+                          title={
+                            isEn
+                              ? 'Pen (tap again to toggle options bar)'
+                              : 'ปากกา (กดซ้ำเพื่อพับ/เปิดแถบสีและตัวเลือก)'
+                          }
+                          aria-label={isEn ? 'Pen' : 'ปากกา'}
+                          className={`p-1.5 rounded-lg border transition shrink-0 ${
+                            toolMode === 'pen'
+                              ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/70'
+                          }`}
+                        >
+                          <PenTool className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => selectMainTool('highlighter')}
+                          title={
+                            isEn
+                              ? 'Highlighter (tap again to toggle options bar)'
+                              : 'ปากกาไฮไลต์ (กดซ้ำเพื่อพับ/เปิดแถบสีและขนาด)'
+                          }
+                          aria-label={isEn ? 'Highlighter' : 'ไฮไลต์'}
+                          className={`p-1.5 rounded-lg border transition shrink-0 ${
+                            toolMode === 'highlighter'
+                              ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/70'
+                          }`}
+                        >
+                          <Highlighter className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => selectMainTool('eraser')}
+                          title={
+                            isEn
+                              ? 'Eraser (tap again to toggle options bar)'
+                              : 'ยางลบ (กดซ้ำเพื่อพับ/เปิดแถบขนาด)'
+                          }
+                          aria-label={isEn ? 'Eraser' : 'ยางลบ'}
+                          className={`p-1.5 rounded-lg border transition shrink-0 ${
+                            toolMode === 'eraser'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100/70'
+                          }`}
+                        >
+                          <Eraser className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => selectMainTool('laser')}
+                          title={
+                            isEn
+                              ? 'Laser Pointer (tap again to toggle options bar)'
+                              : 'เลเซอร์ (กดซ้ำเพื่อพับ/เปิดแถบ)'
+                          }
+                          aria-label={isEn ? 'Laser' : 'เลเซอร์'}
+                          className={`p-1.5 rounded-lg border transition shrink-0 ${
+                            toolMode === 'laser'
+                              ? 'bg-red-600 text-white border-red-600 shadow-xs'
+                              : 'bg-white text-red-700 border-red-200 hover:bg-red-50'
+                          }`}
+                        >
+                          <span
+                            className={`block w-3 h-3 rounded-full m-0.5 ${
+                              toolMode === 'laser' ? 'bg-white' : 'bg-red-500 shadow-[0_0_6px_#ef4444]'
+                            }`}
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => selectMainTool('select')}
+                          title={
+                            isEn
+                              ? 'Select / Resize / Recolor / Copy (tap again to toggle bar)'
+                              : 'เลือก / ย่อขยาย / เปลี่ยนสี / คัดลอก (กดซ้ำเพื่อพับ/เปิดแถบ)'
+                          }
+                          aria-label={isEn ? 'Select' : 'เลือก'}
+                          className={`p-1.5 rounded-lg border transition shrink-0 ${
+                            toolMode === 'select'
+                              ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                              : 'bg-white text-sky-800 border-sky-200 hover:bg-sky-50'
+                          }`}
+                        >
+                          {selectionShape === 'lasso' ? (
+                            <Lasso className="w-4 h-4" />
+                          ) : (
+                            <SquareDashed className="w-4 h-4" />
+                          )}
+                        </button>
+
+                        <div className="w-px h-5 bg-amber-200 shrink-0 mx-0.5" />
+
+                        <button
+                          type="button"
+                          onClick={handleUndoStroke}
+                          disabled={!canUndo}
+                          title={isEn ? 'Undo (Ctrl+Z)' : 'ย้อนกลับ (Ctrl+Z)'}
+                          aria-label={isEn ? 'Undo' : 'ย้อน'}
+                          className="p-1.5 rounded-lg bg-white border border-amber-200 text-slate-700 hover:bg-amber-100/70 disabled:opacity-35 shrink-0 transition"
+                        >
+                          <Undo2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleRedoStroke}
+                          disabled={!canRedo}
+                          title={isEn ? 'Redo (Ctrl+Y)' : 'ทำซ้ำ (Ctrl+Y)'}
+                          aria-label={isEn ? 'Redo' : 'ทำซ้ำ'}
+                          className="p-1.5 rounded-lg bg-white border border-amber-200 text-slate-700 hover:bg-amber-100/70 disabled:opacity-35 shrink-0 transition"
+                        >
+                          <Redo2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setPencilOnly((p) => !p)}
+                          title={
+                            isEn
+                              ? pencilOnly
+                                ? 'Pencil Only (tap to allow finger drawing)'
+                                : 'Touch + Pen (tap for Pencil Only)'
+                              : pencilOnly
+                                ? 'เฉพาะปากกา (แตะเพื่อสลับใช้นิ้ววาดได้)'
+                                : 'นิ้ว+ปากกา (แตะเพื่อสลับเฉพาะปากกา)'
+                          }
+                          aria-label={pencilOnly ? (isEn ? 'Pencil Only' : 'เฉพาะปากกา') : (isEn ? 'Touch+Pen' : 'นิ้ว+ปากกา')}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border shrink-0 transition ${
+                            pencilOnly
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pencilOnly ? (
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                          ) : (
+                            <Hand className="w-3.5 h-3.5" />
+                          )}
+                          <span className="hidden md:inline">
+                            {pencilOnly ? (isEn ? 'Pen' : 'ปากกา') : isEn ? 'Touch' : 'นิ้ว+ปากกา'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setColorPickerOpen(false);
+                            setSizePopoverOpen(false);
+                            setToolbarCollapsed(true);
+                          }}
+                          title={isEn ? 'Collapse toolbar' : 'พับเก็บแถบ'}
+                          aria-label={isEn ? 'Collapse toolbar' : 'พับแถบ'}
+                          className="p-1.5 rounded-lg bg-white border border-amber-200 text-amber-800 hover:bg-amber-100 shrink-0 transition"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Extended Color Picker Popover */}
                       {colorPickerOpen && (
                         <div
-                          className={`absolute ${palettePopoverPosClass} w-64 rounded-2xl border border-slate-200 bg-white shadow-xl p-3 z-50 space-y-2.5`}
+                          className={`absolute ${popoverPosClass} w-64 rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-2xl p-3 z-50 space-y-2.5`}
                         >
                           <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                            <span>{isEn ? 'Choose Pen Color' : 'เลือกสีปากกา'}</span>
+                            <span>
+                              {isHl
+                                ? isEn
+                                  ? 'Highlighter Color'
+                                  : 'สีปากกาไฮไลต์'
+                                : isEn
+                                  ? 'Pen Color'
+                                  : 'เลือกสีปากกา'}
+                            </span>
                             <span className="font-mono text-[11px] uppercase text-slate-500">
-                              {penColor}
+                              {activeInkColor}
                             </span>
                           </div>
-
                           <div className="grid grid-cols-6 gap-2">
-                            {EXTENDED_PEN_COLORS.map((c) => (
+                            {(isHl ? HIGHLIGHTER_COLORS : EXTENDED_PEN_COLORS).map((c) => (
                               <button
                                 key={c.color}
                                 type="button"
                                 onClick={() => {
-                                  setToolMode('pen');
-                                  setPenColor(c.color);
+                                  if (isHl) setHighlighterColor(c.color);
+                                  else setPenColor(c.color);
                                   setColorPickerOpen(false);
                                 }}
                                 title={isEn ? c.labelEn : c.label}
-                                aria-label={isEn ? `Select ${c.labelEn}` : `เลือกสี${c.label}`}
                                 className={`w-7 h-7 rounded-full border-2 transition ${
-                                  toolMode === 'pen' && penColor === c.color
+                                  activeInkColor.toLowerCase() === c.color.toLowerCase()
                                     ? 'border-slate-900 scale-110 shadow'
                                     : 'border-white shadow-xs hover:scale-105'
                                 }`}
@@ -2494,361 +3487,154 @@ function SlidesDeckInner({
                               />
                             ))}
                           </div>
-
                           <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
-                            <label
-                              htmlFor="custom-pen-color"
-                              className="text-xs font-semibold text-slate-700 cursor-pointer"
-                            >
-                              {isEn ? 'Custom Color:' : 'เลือกสีอิสระ:'}
+                            <label htmlFor="custom-pen-color" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                              {isEn ? 'Custom:' : 'สีอิสระ:'}
                             </label>
                             <input
                               id="custom-pen-color"
                               type="color"
-                              value={penColor}
+                              value={activeInkColor}
                               onChange={(e) => {
-                                setToolMode('pen');
-                                setPenColor(e.target.value);
+                                if (isHl) setHighlighterColor(e.target.value);
+                                else setPenColor(e.target.value);
                               }}
                               className="h-7 w-14 rounded border border-slate-200 bg-white cursor-pointer"
                             />
                           </div>
                         </div>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Stroke / Eraser widths */}
-                  <div
-                    className={`flex items-center gap-[3px] ${
-                      isVertBar ? 'justify-center' : 'pl-[5px] border-l border-amber-200'
-                    }`}
-                    title={
-                      isEn
-                        ? toolMode === 'eraser'
-                          ? 'Eraser size'
-                          : 'Pen tip width'
-                        : toolMode === 'eraser'
-                          ? 'ปรับขนาดยางลบ'
-                          : 'ปรับขนาดหัวปากกา'
-                    }
-                  >
-                    {(toolMode === 'eraser' ? [3, 6, 11] : [2, 4, 7]).map((w, idx) => {
-                      const label = isEn
-                        ? idx === 0
-                          ? 'S'
-                          : idx === 1
-                            ? 'M'
-                            : 'L'
-                        : idx === 0
-                          ? 'เล็ก'
-                          : idx === 1
-                            ? 'กลาง'
-                            : toolMode === 'eraser'
-                              ? 'ใหญ่'
-                              : 'หนา';
-                      const isSelected =
-                        toolMode === 'eraser'
-                          ? eraserSize === w
-                          : toolMode === 'pen' && penWidth === w;
-                      return (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => {
-                            if (toolMode === 'eraser') {
-                              setEraserSize(w);
-                            } else {
-                              setToolMode('pen');
-                              setPenWidth(w);
-                            }
-                          }}
-                          className={`px-[6px] py-[3px] rounded-[7px] font-semibold border transition ${
-                            isSelected
-                              ? toolMode === 'eraser'
-                                ? 'bg-rose-600 text-white border-rose-600'
-                                : 'bg-amber-600 text-white border-amber-600'
-                              : 'bg-white text-slate-700 border-amber-200'
-                          }`}
+                      {/* Pen / Highlighter / Eraser Settings Popover */}
+                      {sizePopoverOpen && (
+                        <div
+                          className={`absolute ${popoverPosClass} w-68 rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-2xl p-3 z-50 space-y-3 text-xs`}
                         >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between font-bold text-slate-700">
+                              <span>
+                                {toolMode === 'eraser'
+                                  ? isEn
+                                    ? 'Eraser Size'
+                                    : 'ขนาดยางลบ'
+                                  : isHl
+                                    ? isEn
+                                      ? 'Highlighter Thickness'
+                                      : 'ความหนาไฮไลต์'
+                                    : isEn
+                                      ? 'Pen Thickness'
+                                      : 'ความหนาเส้นปากกา'}
+                              </span>
+                              <span className="font-mono text-sky-700">{activeInkWidth}px</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={toolMode === 'eraser' ? 3 : isHl ? 10 : 1.5}
+                              max={toolMode === 'eraser' ? 16 : isHl ? 32 : 10}
+                              step={toolMode === 'eraser' ? 1 : isHl ? 2 : 0.5}
+                              value={activeInkWidth}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                if (toolMode === 'eraser') setEraserSize(val);
+                                else if (isHl) setHighlighterWidth(val);
+                                else setPenWidth(val);
+                              }}
+                              className="w-full accent-sky-600 cursor-pointer"
+                            />
+                          </div>
 
-                  {/* Eraser + Laser */}
-                  <div className={`flex items-center gap-[3px] ${isVertBar ? 'flex-col items-stretch' : ''}`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setColorPickerOpen(false);
-                        setToolMode((m) => (m === 'eraser' ? 'pen' : 'eraser'));
-                      }}
-                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border ${
-                        toolMode === 'eraser'
-                          ? 'bg-rose-600 text-white border-rose-600'
-                          : 'bg-white text-slate-700 border-amber-200'
-                      }`}
-                    >
-                      <Eraser className="w-3 h-3" /> {isEn ? 'Eraser' : 'ยางลบ'}
-                    </button>
-                    {toolMode === 'eraser' && (
-                      <div className="inline-flex items-center justify-center rounded-[7px] border border-rose-200 bg-white p-[2px] text-[12px] font-semibold">
-                        <button
-                          type="button"
-                          onClick={() => setEraserMode('partial')}
-                          title={
-                            isEn
-                              ? 'Erase only where the eraser tip touches'
-                              : 'ลบเฉพาะบริเวณที่หัวยางลบลากผ่าน'
-                          }
-                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
-                            eraserMode === 'partial'
-                              ? 'bg-rose-600 text-white shadow-xs'
-                              : 'text-rose-700 hover:bg-rose-50'
-                          }`}
-                        >
-                          {isEn ? 'Partial' : 'บางส่วน'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEraserMode('stroke')}
-                          title={
-                            isEn
-                              ? 'Touch any stroke to erase the whole stroke'
-                              : 'แตะหรือลากผ่านเส้นไหน จะลบออกทั้งเส้น'
-                          }
-                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
-                            eraserMode === 'stroke'
-                              ? 'bg-rose-600 text-white shadow-xs'
-                              : 'text-rose-700 hover:bg-rose-50'
-                          }`}
-                        >
-                          {isEn ? 'Stroke' : 'ทั้งเส้น'}
-                        </button>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setColorPickerOpen(false);
-                        setToolMode((m) => (m === 'laser' ? 'pen' : 'laser'));
-                      }}
-                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
-                        toolMode === 'laser'
-                          ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                          : 'bg-white text-red-700 border-red-200 hover:bg-red-50'
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          toolMode === 'laser' ? 'bg-white' : 'bg-red-500'
-                        }`}
-                      />
-                      {isEn ? 'Laser' : 'เลเซอร์'}
-                    </button>
-                    {toolMode === 'laser' && (
-                      <div className="inline-flex items-center justify-center rounded-[7px] border border-red-200 bg-white p-[2px] text-[12px] font-semibold">
-                        <button
-                          type="button"
-                          onClick={() => setLaserStyle('trail')}
-                          title={
-                            isEn
-                              ? 'Draw temporary circles/highlights that fade in 1.5s'
-                              : 'วงหรือขีดค้างไว้ได้หลายจุด แล้วค่อยๆ จางหายหมดใน 1.5 วิ'
-                          }
-                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
-                            laserStyle === 'trail'
-                              ? 'bg-red-600 text-white shadow-xs'
-                              : 'text-red-700 hover:bg-red-50'
-                          }`}
-                        >
-                          {isEn ? 'Trail' : 'วง/ขีดค้าง'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setLaserStyle('dot')}
-                          title={
-                            isEn
-                              ? 'Simple red laser dot following the pointer'
-                              : 'เลเซอร์จุดสีแดง ไม่มีหาง ลอยตามหัวปากกา'
-                          }
-                          className={`px-[6px] py-[2px] rounded-[5px] transition ${
-                            laserStyle === 'dot'
-                              ? 'bg-red-600 text-white shadow-xs'
-                              : 'text-red-700 hover:bg-red-50'
-                          }`}
-                        >
-                          {isEn ? 'Dot' : 'จุดชี้'}
-                        </button>
-                      </div>
-                    )}
+                          {toolMode === 'pen' && (
+                            <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                              <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                                <Feather className="w-3.5 h-3.5 text-sky-600" />
+                                <span>{isEn ? 'Pen Nib Style' : 'สไตล์หัวปากกา'}</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 bg-slate-100 p-0.5 rounded-lg">
+                                <button
+                                  type="button"
+                                  onClick={() => setPenStyle('mono')}
+                                  className={`py-1 px-2 rounded-md font-semibold transition ${
+                                    penStyle === 'mono'
+                                      ? 'bg-sky-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-slate-900'
+                                  }`}
+                                >
+                                  {isEn ? 'Ballpoint' : 'เส้นสม่ำเสมอ'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPenStyle('fountain')}
+                                  className={`py-1 px-2 rounded-md font-semibold transition ${
+                                    penStyle === 'fountain'
+                                      ? 'bg-sky-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-slate-900'
+                                  }`}
+                                >
+                                  {isEn ? 'Fountain (Pressure)' : 'ตามแรงกด (Fountain)'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
-                    {/* Select / Copy Tool (Lasso + Rectangle) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setColorPickerOpen(false);
-                        setToolMode((m) => (m === 'select' ? 'pen' : 'select'));
-                      }}
-                      title={
-                        isEn
-                          ? 'Select strokes via Lasso or Rectangle to move, copy, duplicate, or delete'
-                          : 'เลือกเส้นลายมือแบบวงอิสระหรือสี่เหลี่ยม เพื่อย้าย คัดลอก ทำซ้ำ หรือลบ'
-                      }
-                      className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
-                        toolMode === 'select'
-                          ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
-                          : 'bg-white text-sky-800 border-sky-200 hover:bg-sky-50'
-                      }`}
-                    >
-                      {selectionShape === 'lasso' ? (
-                        <Lasso className="w-3 h-3" />
-                      ) : (
-                        <SquareDashed className="w-3 h-3" />
+                          {(toolMode === 'pen' || toolMode === 'highlighter') && (
+                            <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                              <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                                <Shapes className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>{isEn ? 'Hold-to-Snap (~0.5s)' : 'ลากค้าง ~0.5 วิ จัดรูปอัตโนมัติ'}</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px]">
+                                {(
+                                  [
+                                    { id: 'off', th: 'ปิด', en: 'Off' },
+                                    { id: 'line', th: 'เส้นตรง', en: 'Line' },
+                                    { id: 'smart', th: 'รูปทรง/→', en: 'Shapes' },
+                                  ] as const
+                                ).map((opt) => (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setSnapShapeMode(opt.id)}
+                                    className={`py-1 px-1.5 rounded-md font-semibold transition ${
+                                      snapShapeMode === opt.id
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                  >
+                                    {isEn ? opt.en : opt.th}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px]">
+                            <span className="text-slate-600 font-semibold">
+                              {isEn ? 'Dock Position:' : 'ตำแหน่งแถบ:'}
+                            </span>
+                            <div className="inline-flex gap-1 bg-slate-100 p-0.5 rounded-lg">
+                              {(['top', 'bottom'] as const).map((pos) => (
+                                <button
+                                  key={pos}
+                                  type="button"
+                                  onClick={() => {
+                                    setCustomToolbarPos(null);
+                                    setToolbarPos(pos);
+                                  }}
+                                  className={`px-2 py-0.5 rounded-md font-bold transition ${
+                                    !customToolbarPos && toolbarPos === pos
+                                      ? 'bg-amber-500 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-slate-900'
+                                  }`}
+                                >
+                                  {pos === 'top' ? (isEn ? 'Top' : 'บน') : isEn ? 'Bottom' : 'ล่าง'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       )}
-                      <span>{isEn ? 'Select' : 'เลือก'}</span>
-                    </button>
-                    {toolMode === 'select' && (
-                      <div className="inline-flex items-center justify-center rounded-[7px] border border-sky-200 bg-white p-[2px] text-[12px] font-semibold">
-                        <button
-                          type="button"
-                          onClick={() => setSelectionShape('lasso')}
-                          title={isEn ? 'Freehand Lasso selection' : 'วงลากล้อมรอบอิสระ'}
-                          className={`inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-[5px] transition ${
-                            selectionShape === 'lasso'
-                              ? 'bg-sky-600 text-white shadow-xs'
-                              : 'text-sky-800 hover:bg-sky-50'
-                          }`}
-                        >
-                          <Lasso className="w-3 h-3" />
-                          <span>{isEn ? 'Lasso' : 'วงอิสระ'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectionShape('rect')}
-                          title={isEn ? 'Rectangle box selection' : 'ลากกรอบสี่เหลี่ยม'}
-                          className={`inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-[5px] transition ${
-                            selectionShape === 'rect'
-                              ? 'bg-sky-600 text-white shadow-xs'
-                              : 'text-sky-800 hover:bg-sky-50'
-                          }`}
-                        >
-                          <SquareDashed className="w-3 h-3" />
-                          <span>{isEn ? 'Rect' : 'สี่เหลี่ยม'}</span>
-                        </button>
-                      </div>
-                    )}
-                    {(clipboardStrokes.length > 0 || clipboardSnippets.length > 0) && (() => {
-                      const pasteCount = clipboardStrokes.length + clipboardSnippets.length;
-                      return (
-                        <button
-                          type="button"
-                          onClick={handlePasteClipboard}
-                          title={
-                            isEn
-                              ? `Paste ${pasteCount} copied item(s) onto current page (Ctrl+V)`
-                              : `วางสิ่งที่คัดลอกไว้ (${pasteCount} รายการ) ลงในหน้านี้ (Ctrl+V)`
-                          }
-                          className="inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border border-emerald-500 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
-                        >
-                          <ClipboardPaste className="w-3 h-3" />
-                          <span>{isEn ? `Paste (${pasteCount})` : `วาง (${pasteCount})`}</span>
-                        </button>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Palm Rejection Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setPencilOnly((p) => !p)}
-                    title={
-                      isEn
-                        ? 'Toggle Apple Pencil/mouse only (palm rejection) vs allow touch drawing'
-                        : 'สลับระหว่างเฉพาะ Apple Pencil/เมาส์ (กันฝ่ามือ) กับอนุญาตนิ้ววาดด้วย'
-                    }
-                    className={`inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border transition ${
-                      pencilOnly
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    {pencilOnly ? (
-                      <>
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Pencil Only' : 'เฉพาะปากกา'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Hand className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Touch+Pen' : 'นิ้ว+ปากกา'}</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* Undo / Clear */}
-                  <div className={`flex items-center gap-[3px] ${isVertBar ? 'flex-col items-stretch' : ''}`}>
-                    <button
-                      type="button"
-                      onClick={handleUndoStroke}
-                      disabled={!canUndo}
-                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-amber-200 bg-white text-slate-700 font-semibold disabled:opacity-40"
-                    >
-                      <RotateCcw className="w-3 h-3" /> {isEn ? 'Undo' : 'ย้อน'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearSlideInk}
-                      disabled={currentStrokes.length === 0}
-                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-200 bg-white text-rose-700 font-semibold disabled:opacity-40"
-                    >
-                      <Trash2 className="w-3 h-3" /> {isEn ? 'Clear Page' : 'ล้างหน้า'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearAllInk}
-                      disabled={annotatedSlideCount === 0}
-                      className="inline-flex items-center justify-center gap-1 px-[6px] py-[3px] rounded-[7px] border border-rose-300 bg-rose-50 text-rose-800 font-semibold disabled:opacity-40"
-                    >
-                      <Trash2 className="w-3 h-3" /> {isEn ? 'Clear All' : 'ล้างหมด'}
-                    </button>
-                  </div>
-
-                  {/* Toolbar Dock Position Switcher */}
-                  <div
-                    className={`flex items-center gap-[2px] rounded-[8px] border border-amber-200 bg-white p-[2px] text-[12px] font-bold ${
-                      isVertBar ? 'grid grid-cols-2' : ''
-                    }`}
-                    title={isEn ? 'Move annotation toolbar dock' : 'ย้ายตำแหน่งแถบเครื่องมือเขียน'}
-                  >
-                    {(
-                      [
-                        { id: 'top', label: isEn ? 'Top' : 'บน' },
-                        { id: 'bottom', label: isEn ? 'Bot' : 'ล่าง' },
-                        { id: 'left', label: isEn ? 'L' : 'ซ้าย' },
-                        { id: 'right', label: isEn ? 'R' : 'ขวา' },
-                      ] as const
-                    ).map((pos) => (
-                      <button
-                        key={pos.id}
-                        type="button"
-                        onClick={() => {
-                          setColorPickerOpen(false);
-                          setCustomToolbarPos(null);
-                          setToolbarPos(pos.id);
-                        }}
-                        className={`px-[5px] py-[2px] rounded-[6px] transition ${
-                          !customToolbarPos && toolbarPos === pos.id
-                            ? 'bg-amber-500 text-white shadow-xs'
-                            : 'text-slate-600 hover:bg-amber-50'
-                        }`}
-                      >
-                        {pos.label}
-                      </button>
-                    ))}
-                  </div>
+                    </>
+                  )}
                 </div>
               );
             })()}
@@ -3343,6 +4129,10 @@ function SlidesDeckInner({
                   pencilOnly={pencilOnly}
                   penColor={penColor}
                   penWidth={penWidth}
+                  penStyle={penStyle}
+                  snapShapeMode={snapShapeMode}
+                  highlighterColor={highlighterColor}
+                  highlighterWidth={highlighterWidth}
                   eraserSize={eraserSize}
                   eraserMode={eraserMode}
                   toolMode={toolMode}

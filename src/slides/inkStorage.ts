@@ -500,3 +500,112 @@ export async function clearDeckSnippets(deckId: string): Promise<void> {
     }
   });
 }
+
+export interface DeckBackupPayload {
+  version: 1;
+  app: 'eng-math-2-slides';
+  deckId: string;
+  exportedAt: string;
+  strokesBySlide: Record<number, InkStroke[]>;
+  customPages: CustomBlankPage[];
+  snippetsBySlide: Record<number, SlideSnippet[]>;
+}
+
+export async function exportDeckBackup(
+  deckId: string,
+  legacyStorageKey?: string,
+): Promise<DeckBackupPayload> {
+  const [strokesBySlide, customPages, snippetsBySlide] = await Promise.all([
+    loadDeckInk(deckId, legacyStorageKey),
+    loadCustomBlankPages(deckId),
+    loadDeckSnippets(deckId),
+  ]);
+  return {
+    version: 1,
+    app: 'eng-math-2-slides',
+    deckId,
+    exportedAt: new Date().toISOString(),
+    strokesBySlide,
+    customPages,
+    snippetsBySlide,
+  };
+}
+
+export async function importDeckBackup(
+  deckId: string,
+  raw: unknown,
+  mode: 'replace' | 'merge',
+  legacyStorageKey?: string,
+): Promise<{
+  strokesBySlide: Record<number, InkStroke[]>;
+  customPages: CustomBlankPage[];
+  snippetsBySlide: Record<number, SlideSnippet[]>;
+}> {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Invalid backup file');
+  }
+  const obj = raw as Partial<DeckBackupPayload>;
+  if (obj.app !== 'eng-math-2-slides' && !obj.strokesBySlide && !obj.customPages) {
+    throw new Error('Unsupported backup format');
+  }
+
+  const inStrokes: Record<number, InkStroke[]> = {};
+  if (obj.strokesBySlide && typeof obj.strokesBySlide === 'object') {
+    for (const [k, list] of Object.entries(obj.strokesBySlide)) {
+      const sId = Number(k);
+      if (Number.isFinite(sId) && Array.isArray(list)) {
+        inStrokes[sId] = list;
+      }
+    }
+  }
+  const inPages: CustomBlankPage[] = Array.isArray(obj.customPages) ? obj.customPages : [];
+  const inSnips: Record<number, SlideSnippet[]> = {};
+  if (obj.snippetsBySlide && typeof obj.snippetsBySlide === 'object') {
+    for (const [k, list] of Object.entries(obj.snippetsBySlide)) {
+      const sId = Number(k);
+      if (Number.isFinite(sId) && Array.isArray(list)) {
+        inSnips[sId] = list;
+      }
+    }
+  }
+
+  let finalStrokes: Record<number, InkStroke[]>;
+  let finalPages: CustomBlankPage[];
+  let finalSnips: Record<number, SlideSnippet[]>;
+
+  if (mode === 'replace') {
+    await Promise.all([clearDeckInk(deckId, legacyStorageKey), clearDeckSnippets(deckId)]);
+    finalStrokes = inStrokes;
+    finalPages = inPages;
+    finalSnips = inSnips;
+  } else {
+    const [curStrokes, curPages, curSnips] = await Promise.all([
+      loadDeckInk(deckId, legacyStorageKey),
+      loadCustomBlankPages(deckId),
+      loadDeckSnippets(deckId),
+    ]);
+    finalStrokes = { ...curStrokes };
+    for (const [k, list] of Object.entries(inStrokes)) {
+      const sId = Number(k);
+      finalStrokes[sId] = [...(finalStrokes[sId] ?? []), ...list];
+    }
+    const existingIds = new Set(curPages.map((p) => p.id));
+    finalPages = [...curPages, ...inPages.filter((p) => !existingIds.has(p.id))];
+    finalSnips = { ...curSnips };
+    for (const [k, list] of Object.entries(inSnips)) {
+      const sId = Number(k);
+      const seenSnips = new Set((finalSnips[sId] ?? []).map((s) => s.id));
+      finalSnips[sId] = [...(finalSnips[sId] ?? []), ...list.filter((s) => !seenSnips.has(s.id))];
+    }
+  }
+
+  await saveCustomBlankPages(deckId, finalPages);
+  await Promise.all([
+    ...Object.entries(finalStrokes).map(([k, list]) =>
+      saveSlideInk(deckId, Number(k), list, legacyStorageKey),
+    ),
+    ...Object.entries(finalSnips).map(([k, list]) => saveSlideSnippets(deckId, Number(k), list)),
+  ]);
+
+  return { strokesBySlide: finalStrokes, customPages: finalPages, snippetsBySlide: finalSnips };
+}

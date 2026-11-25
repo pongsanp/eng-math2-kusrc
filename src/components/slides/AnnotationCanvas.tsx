@@ -12,14 +12,19 @@ import {
   drawLaserTip,
   drawStrokeOnContext,
   isStylusTouch,
+  recognizeHoldSnapShape,
+  recolorStroke,
+  scaleStroke,
   translateStroke,
   type AnnotationTool,
   type EraserMode,
   type InkStroke,
   type LaserStyle,
+  type PenStyle,
   type SelectionShape,
   type SlideBBox,
   type SlideSnippet,
+  type SnapShapeMode,
 } from '../../slides/inkUtils';
 
 export type { InkStroke };
@@ -35,6 +40,10 @@ interface AnnotationCanvasProps {
   pencilOnly: boolean;
   penColor: string;
   penWidth: number;
+  penStyle?: PenStyle;
+  snapShapeMode?: SnapShapeMode;
+  highlighterColor?: string;
+  highlighterWidth?: number;
   eraserSize?: number;
   eraserMode?: EraserMode;
   toolMode: AnnotationTool;
@@ -58,8 +67,26 @@ interface AnnotationCanvasProps {
 
 const LINE_SNAP_HOLD_MS = 480;
 const LINE_SNAP_STILL_PX = 8;
-const LINE_SNAP_MIN_LEN_PX = 34;
-const LINE_SNAP_MIN_SPAN_PX = 24;
+
+const SELECT_RECOLOR_SWATCHES = ['#0f172a', '#2563eb', '#dc2626', '#059669', '#d97706'];
+
+function getFountainPressureFactor(
+  evt: { pointerType?: string; pressure?: number },
+  distPx: number,
+  dtMs: number,
+  prevFactor: number,
+): number {
+  const p = evt.pressure ?? 0;
+  let raw: number;
+  if (evt.pointerType === 'pen' && p > 0 && Math.abs(p - 0.5) > 0.015) {
+    raw = 0.42 + p * 1.18;
+  } else {
+    const speed = distPx / Math.max(4, dtMs);
+    raw = Math.max(0.7, Math.min(1.22, 1.18 - speed * 0.22));
+  }
+  const clamped = Math.max(0.4, Math.min(1.55, raw));
+  return Math.round((prevFactor * 0.62 + clamped * 0.38) * 100) / 100;
+}
 
 function getCanvasScale(canvas: HTMLCanvasElement): number {
   const cw = canvas.clientWidth || 1280;
@@ -72,6 +99,10 @@ export function AnnotationCanvas({
   pencilOnly,
   penColor,
   penWidth,
+  penStyle = 'mono',
+  snapShapeMode = 'smart',
+  highlighterColor = '#fef08a',
+  highlighterWidth = 18,
   eraserSize = 6,
   eraserMode = 'partial',
   toolMode,
@@ -112,11 +143,18 @@ export function AnnotationCanvas({
   const selectedSnippetsRef = useRef<SlideSnippetHit[]>([]);
   const selectionDraftRef = useRef<Array<[number, number]> | null>(null);
   const dragStateRef = useRef<{
+    mode: 'move' | 'resize';
     startPt: [number, number];
     curDx: number;
     curDy: number;
+    anchorX: number;
+    anchorY: number;
+    origW: number;
+    origH: number;
+    curScale: number;
     baseBBox: SlideBBox;
   } | null>(null);
+  const lastSampleTimeRef = useRef<number>(0);
   const copiedTimerRef = useRef<number | null>(null);
 
   const selectionContextKey = `${drawEnabled}:${toolMode}`;
@@ -207,14 +245,11 @@ export function AnnotationCanvas({
     for (let i = 0; i < strokes.length; i++) {
       const st = strokes[i];
       if (drag && selSet && selSet.has(i)) {
-        drawStrokeOnContext(
-          ctx,
-          translateStroke(st, drag.curDx, drag.curDy, minNormY),
-          w,
-          bodyH,
-          scale,
-          offsetY,
-        );
+        const transformed =
+          drag.mode === 'resize'
+            ? scaleStroke(st, drag.anchorX, drag.anchorY, drag.curScale, drag.curScale, minNormY)
+            : translateStroke(st, drag.curDx, drag.curDy, minNormY);
+        drawStrokeOnContext(ctx, transformed, w, bodyH, scale, offsetY);
       } else {
         drawStrokeOnContext(ctx, st, w, bodyH, scale, offsetY);
       }
@@ -227,6 +262,7 @@ export function AnnotationCanvas({
   const snapHoldTimerRef = useRef<number | null>(null);
   const lineSnapRef = useRef<{
     snapped: boolean;
+    snappedKind?: 'line' | 'circle' | 'ellipse' | 'rect' | 'triangle' | 'arrow';
     startPt: [number, number];
     holdPt: [number, number];
     lastPt: [number, number];
@@ -241,26 +277,30 @@ export function AnnotationCanvas({
   }, []);
 
   const scheduleLineSnap = useCallback(
-    (stageW: number, stageBodyH: number) => {
+    (stageW: number, stageBodyH: number, minNormY: number) => {
       clearLineSnapTimer();
+      if (snapShapeMode === 'off') return;
       snapHoldTimerRef.current = window.setTimeout(() => {
         snapHoldTimerRef.current = null;
         const snap = lineSnapRef.current;
         const stroke = activeStrokeRef.current;
         if (!snap || snap.snapped || !stroke || stroke.isEraser) return;
-        const directSpanPx = Math.hypot(
-          (snap.lastPt[0] - snap.startPt[0]) * stageW,
-          (snap.lastPt[1] - snap.startPt[1]) * stageBodyH,
+        const recognized = recognizeHoldSnapShape(
+          stroke.points,
+          stageW,
+          stageBodyH,
+          snapShapeMode,
+          minNormY,
         );
-        if (snap.pathLenPx < LINE_SNAP_MIN_LEN_PX || directSpanPx < LINE_SNAP_MIN_SPAN_PX) {
-          return;
-        }
+        if (!recognized) return;
         snap.snapped = true;
-        stroke.points = [snap.startPt, snap.lastPt];
+        snap.snappedKind = recognized.kind;
+        stroke.points = recognized.points;
+        stroke.pressures = undefined;
         redrawAll();
       }, LINE_SNAP_HOLD_MS);
     },
-    [clearLineSnapTimer, redrawAll],
+    [clearLineSnapTimer, redrawAll, snapShapeMode],
   );
 
   const drawSelectionOverlay = useCallback(() => {
@@ -330,14 +370,29 @@ export function AnnotationCanvas({
     const bbox = computeStrokesBBox(chosen);
     if (!bbox) return;
 
-    const dx = dragStateRef.current?.curDx ?? 0;
-    const dy = dragStateRef.current?.curDy ?? 0;
+    const drag = dragStateRef.current;
+    const effMinX =
+      drag?.mode === 'resize'
+        ? drag.anchorX + (bbox.minX - drag.anchorX) * drag.curScale
+        : bbox.minX + (drag?.curDx ?? 0);
+    const effMaxX =
+      drag?.mode === 'resize'
+        ? drag.anchorX + (bbox.maxX - drag.anchorX) * drag.curScale
+        : bbox.maxX + (drag?.curDx ?? 0);
+    const effMinY =
+      drag?.mode === 'resize'
+        ? drag.anchorY + (bbox.minY - drag.anchorY) * drag.curScale
+        : bbox.minY + (drag?.curDy ?? 0);
+    const effMaxY =
+      drag?.mode === 'resize'
+        ? drag.anchorY + (bbox.maxY - drag.anchorY) * drag.curScale
+        : bbox.maxY + (drag?.curDy ?? 0);
     const padX = 8 * scale;
     const padY = 8 * scale;
-    const x1 = (bbox.minX + dx) * w - padX;
-    const y1 = toCanvasY(bbox.minY + dy) - padY;
-    const bw = Math.max(12 * scale, (bbox.maxX - bbox.minX) * w + padX * 2);
-    const bh = Math.max(12 * scale, (bbox.maxY - bbox.minY) * bodyFrac * h + padY * 2);
+    const x1 = Math.min(effMinX, effMaxX) * w - padX;
+    const y1 = toCanvasY(Math.min(effMinY, effMaxY)) - padY;
+    const bw = Math.max(12 * scale, Math.abs(effMaxX - effMinX) * w + padX * 2);
+    const bh = Math.max(12 * scale, Math.abs(effMaxY - effMinY) * bodyFrac * h + padY * 2);
 
     ctx.save();
     ctx.fillStyle = 'rgba(14, 165, 233, 0.06)';
@@ -347,12 +402,12 @@ export function AnnotationCanvas({
     ctx.fillRect(x1, y1, bw, bh);
     ctx.strokeRect(x1, y1, bw, bh);
 
-    // Subtle corner handles
+    // Resize corner handles
     ctx.setLineDash([]);
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 1.6 * scale;
-    const hs = 6 * scale;
+    ctx.lineWidth = 1.8 * scale;
+    const hs = 8 * scale;
     const corners: Array<[number, number]> = [
       [x1, y1],
       [x1 + bw, y1],
@@ -634,6 +689,14 @@ export function AnnotationCanvas({
     onReplaceStrokes?.(next);
   };
 
+  const handleRecolorSelected = (nextColor: string) => {
+    const cur = strokesLatestRef.current;
+    if (selectedIndicesRef.current.length === 0) return;
+    const selSet = new Set(selectedIndicesRef.current);
+    const next = cur.map((st, idx) => (selSet.has(idx) ? recolorStroke(st, nextColor) : st));
+    onReplaceStrokes?.(next);
+  };
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!drawEnabled) return;
     const canvas = e.currentTarget;
@@ -677,24 +740,63 @@ export function AnnotationCanvas({
       if (curSelected.length > 0) {
         const chosen = curSelected.map((idx) => strokesLatestRef.current[idx]).filter(Boolean);
         const bbox = computeStrokesBBox(chosen);
-        const padX = 12 / (canvas.clientWidth || 1280);
-        const padY = 12 / ((canvas.clientHeight || 686) * layout.bodyFrac);
-        if (
-          bbox &&
-          pt[0] >= bbox.minX - padX &&
-          pt[0] <= bbox.maxX + padX &&
-          pt[1] >= bbox.minY - padY &&
-          pt[1] <= bbox.maxY + padY
-        ) {
-          dragStateRef.current = {
-            startPt: pt,
-            curDx: 0,
-            curDy: 0,
-            baseBBox: bbox,
-          };
-          setIsDraggingSelection(true);
-          drawSelectionOverlay();
-          return;
+        const stageW = canvas.clientWidth || 1280;
+        const stageBodyH = (canvas.clientHeight || 686) * layout.bodyFrac;
+        const padX = 12 / stageW;
+        const padY = 12 / stageBodyH;
+
+        if (bbox) {
+          const hitPadX = 18 / stageW;
+          const hitPadY = 18 / stageBodyH;
+          const cornerAnchors: Array<{ cx: number; cy: number; ax: number; ay: number }> = [
+            { cx: bbox.minX - 8 / stageW, cy: bbox.minY - 8 / stageBodyH, ax: bbox.maxX, ay: bbox.maxY },
+            { cx: bbox.maxX + 8 / stageW, cy: bbox.minY - 8 / stageBodyH, ax: bbox.minX, ay: bbox.maxY },
+            { cx: bbox.minX - 8 / stageW, cy: bbox.maxY + 8 / stageBodyH, ax: bbox.maxX, ay: bbox.minY },
+            { cx: bbox.maxX + 8 / stageW, cy: bbox.maxY + 8 / stageBodyH, ax: bbox.minX, ay: bbox.minY },
+          ];
+          const hitCorner = cornerAnchors.find(
+            (c) => Math.abs(pt[0] - c.cx) <= hitPadX && Math.abs(pt[1] - c.cy) <= hitPadY,
+          );
+          if (hitCorner) {
+            dragStateRef.current = {
+              mode: 'resize',
+              startPt: pt,
+              curDx: 0,
+              curDy: 0,
+              anchorX: hitCorner.ax,
+              anchorY: hitCorner.ay,
+              origW: Math.max(0.02, bbox.maxX - bbox.minX),
+              origH: Math.max(0.02, bbox.maxY - bbox.minY),
+              curScale: 1,
+              baseBBox: bbox,
+            };
+            setIsDraggingSelection(true);
+            drawSelectionOverlay();
+            return;
+          }
+
+          if (
+            pt[0] >= bbox.minX - padX &&
+            pt[0] <= bbox.maxX + padX &&
+            pt[1] >= bbox.minY - padY &&
+            pt[1] <= bbox.maxY + padY
+          ) {
+            dragStateRef.current = {
+              mode: 'move',
+              startPt: pt,
+              curDx: 0,
+              curDy: 0,
+              anchorX: bbox.minX,
+              anchorY: bbox.minY,
+              origW: bbox.maxX - bbox.minX,
+              origH: bbox.maxY - bbox.minY,
+              curScale: 1,
+              baseBBox: bbox,
+            };
+            setIsDraggingSelection(true);
+            drawSelectionOverlay();
+            return;
+          }
         }
       }
 
@@ -721,10 +823,20 @@ export function AnnotationCanvas({
       return;
     }
 
+    const isHighlighterTool = toolMode === 'highlighter';
+    const isFountain = toolMode === 'pen' && penStyle === 'fountain';
+    const nativeEvt = e.nativeEvent as PointerEvent;
+    lastSampleTimeRef.current = performance.now();
+    const initialPressure = isFountain
+      ? getFountainPressureFactor(nativeEvt, 0, 16, 0.95)
+      : undefined;
+
     const stroke: InkStroke = {
-      color: penColor,
-      width: toolMode === 'eraser' ? eraserSize : penWidth,
+      color: isHighlighterTool ? highlighterColor : penColor,
+      width: toolMode === 'eraser' ? eraserSize : isHighlighterTool ? highlighterWidth : penWidth,
       isEraser: toolMode === 'eraser',
+      isHighlighter: isHighlighterTool || undefined,
+      pressures: initialPressure !== undefined ? [initialPressure] : undefined,
       points: [pt],
     };
     activeStrokeRef.current = stroke;
@@ -739,7 +851,7 @@ export function AnnotationCanvas({
         lastPt: pt,
         pathLenPx: 0,
       };
-      scheduleLineSnap(stageW, stageBodyH);
+      scheduleLineSnap(stageW, stageBodyH, layout.minNormY);
     } else {
       lineSnapRef.current = null;
       clearLineSnapTimer();
@@ -810,15 +922,21 @@ export function AnnotationCanvas({
 
       const drag = dragStateRef.current;
       if (drag) {
-        const clamped = clampDeltaToBBox(
-          drag.baseBBox,
-          pt[0] - drag.startPt[0],
-          pt[1] - drag.startPt[1],
-          0.005,
-          layout.minNormY,
-        );
-        drag.curDx = clamped.dx;
-        drag.curDy = clamped.dy;
+        if (drag.mode === 'resize') {
+          const rx = Math.abs(pt[0] - drag.anchorX) / drag.origW;
+          const ry = Math.abs(pt[1] - drag.anchorY) / drag.origH;
+          drag.curScale = Math.max(0.25, Math.min(3.5, (rx + ry) / 2));
+        } else {
+          const clamped = clampDeltaToBBox(
+            drag.baseBBox,
+            pt[0] - drag.startPt[0],
+            pt[1] - drag.startPt[1],
+            0.005,
+            layout.minNormY,
+          );
+          drag.curDx = clamped.dx;
+          drag.curDy = clamped.dy;
+        }
         redrawAll();
         drawSelectionOverlay();
         return;
@@ -898,11 +1016,13 @@ export function AnnotationCanvas({
     const snap = lineSnapRef.current;
 
     if (!stroke.isEraser && snap?.snapped) {
-      const lastSample = samples[samples.length - 1];
-      const nextPt = toNormFromClient(lastSample.clientX, lastSample.clientY, rect, layout);
-      snap.lastPt = nextPt;
-      stroke.points = [snap.startPt, nextPt];
-      redrawAll();
+      if (snap.snappedKind === 'line') {
+        const lastSample = samples[samples.length - 1];
+        const nextPt = toNormFromClient(lastSample.clientX, lastSample.clientY, rect, layout);
+        snap.lastPt = nextPt;
+        stroke.points = [snap.startPt, nextPt];
+        redrawAll();
+      }
       return;
     }
 
@@ -919,9 +1039,36 @@ export function AnnotationCanvas({
       );
       if (holdDriftPx > LINE_SNAP_STILL_PX) {
         snap.holdPt = nextPt;
-        scheduleLineSnap(stageW, stageBodyH);
+        scheduleLineSnap(stageW, stageBodyH, layout.minNormY);
       }
     };
+
+    const nowMs = performance.now();
+    const dtPerSample = Math.max(2, (nowMs - lastSampleTimeRef.current) / Math.max(1, samples.length));
+    lastSampleTimeRef.current = nowMs;
+
+    if (stroke.isHighlighter || stroke.pressures) {
+      let added = false;
+      for (const sample of samples) {
+        const nextPt = toNormFromClient(sample.clientX, sample.clientY, rect, layout);
+        const prev = pts[pts.length - 1];
+        const distNorm = Math.hypot(nextPt[0] - prev[0], nextPt[1] - prev[1]);
+        if (distNorm >= 0.0005) {
+          pts.push(nextPt);
+          if (stroke.pressures) {
+            const distPx = Math.hypot((nextPt[0] - prev[0]) * stageW, (nextPt[1] - prev[1]) * stageBodyH);
+            const prevPr = stroke.pressures[stroke.pressures.length - 1] ?? 1;
+            stroke.pressures.push(getFountainPressureFactor(sample, distPx, dtPerSample, prevPr));
+          }
+          trackSnapMove(nextPt, prev);
+          added = true;
+        }
+      }
+      if (added) {
+        redrawAll();
+      }
+      return;
+    }
 
     if (ctx) {
       ctx.save();
@@ -996,10 +1143,16 @@ export function AnnotationCanvas({
     if (toolMode === 'select') {
       const drag = dragStateRef.current;
       if (drag) {
-        const { curDx, curDy } = drag;
+        const { mode, curDx, curDy, anchorX, anchorY, curScale } = drag;
         dragStateRef.current = null;
         setIsDraggingSelection(false);
-        if (Math.hypot(curDx, curDy) > 0.001) {
+        if (mode === 'resize' && Math.abs(curScale - 1) > 0.015) {
+          const selSet = new Set(selectedIndicesRef.current);
+          const next = strokesLatestRef.current.map((st, idx) =>
+            selSet.has(idx) ? scaleStroke(st, anchorX, anchorY, curScale, curScale, layout.minNormY) : st,
+          );
+          onReplaceStrokes?.(next);
+        } else if (mode === 'move' && Math.hypot(curDx, curDy) > 0.001) {
           const selSet = new Set(selectedIndicesRef.current);
           const next = strokesLatestRef.current.map((st, idx) =>
             selSet.has(idx) ? translateStroke(st, curDx, curDy, layout.minNormY) : st,
@@ -1157,6 +1310,19 @@ export function AnnotationCanvas({
           </button>
           {selectedIndices.length > 0 && (
             <>
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-800/90 border border-slate-700">
+                {SELECT_RECOLOR_SWATCHES.map((col) => (
+                  <button
+                    key={col}
+                    type="button"
+                    onClick={() => handleRecolorSelected(col)}
+                    title={lang === 'th' ? 'เปลี่ยนสีเส้นที่เลือก' : 'Recolor selection'}
+                    aria-label={lang === 'th' ? 'เปลี่ยนสีเส้นที่เลือก' : 'Recolor selection'}
+                    className="w-3.5 h-3.5 rounded-full border border-white/80 hover:scale-125 transition cursor-pointer"
+                    style={{ backgroundColor: col }}
+                  />
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={handleDuplicateSelected}
