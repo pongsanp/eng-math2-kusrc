@@ -123,6 +123,7 @@ export function addLabeledSphere(
   darkMode = false,
   radius = 0.13,
   labelOffsetY = 0.36,
+  labelOffsetMath?: Vec3,
 ) {
   const sphere = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 20, 20),
@@ -140,7 +141,11 @@ export function addLabeledSphere(
       darkMode ? 'halo-dark' : 'halo',
       0.5,
     );
-    sp.position.copy(pos3).add(new THREE.Vector3(0, labelOffsetY, 0));
+    if (labelOffsetMath) {
+      sp.position.copy(pos3).add(mathVecToThree(labelOffsetMath));
+    } else {
+      sp.position.copy(pos3).add(new THREE.Vector3(0, labelOffsetY, 0));
+    }
     group.add(sp);
   }
 }
@@ -152,6 +157,9 @@ export interface ArrowOptions {
   opacity?: number;
   labelMidpoint?: boolean;
   labelScale?: number;
+  labelSideSign?: 1 | -1;
+  labelOffsetAlong?: number;
+  labelOffsetDist?: number;
 }
 
 export function addSolidVectorArrow(
@@ -221,12 +229,15 @@ export function addSolidVectorArrow(
       if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
       side.normalize();
       const orthoUp = new THREE.Vector3().crossVectors(side, uDir).normalize();
-      const offsetDist = Math.min(0.36, Math.max(0.24, len * 0.16));
+      const sideSign = opts.labelSideSign ?? 1;
+      const alongFrac = opts.labelOffsetAlong ?? 0.52;
+      const offsetDist =
+        opts.labelOffsetDist ?? Math.min(0.36, Math.max(0.24, len * 0.16));
       sp.position
         .copy(o3)
-        .addScaledVector(uDir, len * 0.52)
-        .addScaledVector(orthoUp, offsetDist)
-        .addScaledVector(side, 0.14);
+        .addScaledVector(uDir, len * alongFrac)
+        .addScaledVector(orthoUp, offsetDist * sideSign)
+        .addScaledVector(side, 0.14 * sideSign);
     }
     group.add(sp);
   }

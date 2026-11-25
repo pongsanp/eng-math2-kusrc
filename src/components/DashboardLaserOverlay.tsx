@@ -240,8 +240,11 @@ export function DashboardLaserOverlay({
     const container = containerRef.current;
     if (!active || !pencilOnly || !container) return;
 
+    let lastPenAt = 0;
+
     const onPointerDownCap = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
+      if (e.pointerType === 'pen') lastPenAt = performance.now();
       if (isInteractiveControlTarget(e.target)) return;
       if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
       e.preventDefault();
@@ -251,6 +254,7 @@ export function DashboardLaserOverlay({
 
     const onPointerMoveCap = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
+      if (e.pointerType === 'pen') lastPenAt = performance.now();
       if (activePointerIdRef.current === null && isInteractiveControlTarget(e.target)) {
         if (activeTipRef.current !== null) {
           activeTipRef.current = null;
@@ -266,6 +270,7 @@ export function DashboardLaserOverlay({
     };
 
     const onPointerEndCap = (e: PointerEvent) => {
+      if (e.pointerType === 'pen') lastPenAt = performance.now();
       if (activePointerIdRef.current === e.pointerId) {
         e.preventDefault();
         e.stopPropagation();
@@ -285,7 +290,11 @@ export function DashboardLaserOverlay({
       const first = (e.touches?.[0] ?? e.changedTouches?.[0]) as
         | (Touch & { touchType?: string })
         | undefined;
-      if (first && isStylusTouch(first)) {
+      if (
+        activePointerIdRef.current !== null ||
+        performance.now() - lastPenAt < 350 ||
+        (first && isStylusTouch(first))
+      ) {
         e.preventDefault();
       }
     };

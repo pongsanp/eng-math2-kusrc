@@ -93,6 +93,7 @@ export function AnnotationCanvas({
   const activeStrokeRef = useRef<InkStroke | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const activePointerTypeRef = useRef<string | null>(null);
+  const lastPenAtRef = useRef<number>(0);
   const lastEraserPtRef = useRef<[number, number] | null>(null);
   const strokesLatestRef = useRef<InkStroke[]>(strokes);
 
@@ -539,7 +540,10 @@ export function AnnotationCanvas({
         return;
       }
       const first = te.touches?.[0] ?? te.changedTouches?.[0];
-      if (first && isStylusTouch(first as Touch & { touchType?: string })) {
+      const isPenActive =
+        activePointerTypeRef.current === 'pen' ||
+        performance.now() - lastPenAtRef.current < 350;
+      if (isPenActive || (first && isStylusTouch(first as Touch & { touchType?: string }))) {
         e.preventDefault();
       }
     };
@@ -632,11 +636,17 @@ export function AnnotationCanvas({
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!drawEnabled) return;
-    if (pencilOnly && e.pointerType === 'touch') return;
+    const canvas = e.currentTarget;
+    if (e.pointerType === 'pen') {
+      lastPenAtRef.current = performance.now();
+      canvas.style.touchAction = 'none';
+    } else if (pencilOnly && e.pointerType === 'touch') {
+      canvas.style.touchAction = 'pan-y';
+      return;
+    }
     if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
 
     e.preventDefault();
-    const canvas = e.currentTarget;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -752,6 +762,10 @@ export function AnnotationCanvas({
   const handlePointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!drawEnabled) return;
     const canvas = e.currentTarget;
+    if (e.pointerType === 'pen') {
+      lastPenAtRef.current = performance.now();
+      canvas.style.touchAction = 'none';
+    }
     const rect = canvas.getBoundingClientRect();
     const layout = getStageLayout(canvas);
     const nativeEvt = e.nativeEvent as PointerEvent;
@@ -967,6 +981,7 @@ export function AnnotationCanvas({
     activePointerIdRef.current = null;
     activePointerTypeRef.current = null;
     lastEraserPtRef.current = null;
+    canvas.style.touchAction = pencilOnly ? 'pan-y' : 'none';
 
     if (toolMode === 'laser') {
       laserActiveTipRef.current = null;
@@ -1045,7 +1060,10 @@ export function AnnotationCanvas({
     }
   };
 
-  const handlePointerLeave = () => {
+  const handlePointerLeave = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (activePointerIdRef.current === null && pencilOnly) {
+      e.currentTarget.style.touchAction = 'pan-y';
+    }
     if (toolMode === 'laser' && activePointerIdRef.current === null) {
       laserActiveTipRef.current = null;
       ensureLaserLoop();
@@ -1068,10 +1086,17 @@ export function AnnotationCanvas({
     <>
       <canvas
         ref={canvasRef}
+        onPointerEnter={(e) => {
+          if (drawEnabled && e.pointerType === 'pen') {
+            lastPenAtRef.current = performance.now();
+            e.currentTarget.style.touchAction = 'none';
+          }
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishStroke}
         onPointerCancel={finishStroke}
+        onLostPointerCapture={finishStroke}
         onPointerLeave={handlePointerLeave}
         style={
           drawEnabled

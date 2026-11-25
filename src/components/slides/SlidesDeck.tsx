@@ -347,6 +347,8 @@ function SlidesDeckInner({
     t: number;
     scrollTop: number;
   } | null>(null);
+  const activePenIdsRef = useRef<Set<number>>(new Set());
+  const lastPenActivityAtRef = useRef<number>(0);
   const wheelCooldownRef = useRef(0);
 
   // Annotation / Apple Pencil / Copy-Select state
@@ -1176,7 +1178,11 @@ function SlidesDeckInner({
           return;
         }
         const t = e.touches[0] as Touch & { touchType?: string };
-        if (isStylusTouch(t)) {
+        if (
+          isStylusTouch(t) ||
+          activePenIdsRef.current.size > 0 ||
+          performance.now() - lastPenActivityAtRef.current < 350
+        ) {
           gesture = null;
           return;
         }
@@ -1284,7 +1290,11 @@ function SlidesDeckInner({
       return;
     }
     const touch = e.touches[0] as Touch & { touchType?: string };
-    if (isStylusTouch(touch)) {
+    if (
+      isStylusTouch(touch) ||
+      activePenIdsRef.current.size > 0 ||
+      performance.now() - lastPenActivityAtRef.current < 350
+    ) {
       stageSwipeRef.current = null;
       return;
     }
@@ -1297,7 +1307,11 @@ function SlidesDeckInner({
   };
 
   const handleStageTouchMove = (e: ReactTouchEvent<HTMLElement>) => {
-    if (e.touches?.length !== 1) {
+    if (
+      e.touches?.length !== 1 ||
+      activePenIdsRef.current.size > 0 ||
+      performance.now() - lastPenActivityAtRef.current < 350
+    ) {
       stageSwipeRef.current = null;
     }
   };
@@ -1309,7 +1323,13 @@ function SlidesDeckInner({
     if (zoom > 1.01) return;
     if (drawEnabled && !pencilOnly) return;
     const ct = e.changedTouches[0] as Touch & { touchType?: string };
-    if (isStylusTouch(ct)) return;
+    if (
+      isStylusTouch(ct) ||
+      activePenIdsRef.current.size > 0 ||
+      performance.now() - lastPenActivityAtRef.current < 350
+    ) {
+      return;
+    }
     if (performance.now() - start.t > 900) return;
 
     const body = slideBodyRef.current;
@@ -2174,11 +2194,38 @@ function SlidesDeckInner({
           {/* Slide Canvas Container */}
           <main
             ref={stageWrapperRef}
+            onPointerDownCapture={(e) => {
+              if (e.pointerType === 'pen') {
+                activePenIdsRef.current.add(e.pointerId);
+                lastPenActivityAtRef.current = performance.now();
+                stageSwipeRef.current = null;
+              }
+            }}
+            onPointerMoveCapture={(e) => {
+              if (e.pointerType === 'pen') {
+                lastPenActivityAtRef.current = performance.now();
+                stageSwipeRef.current = null;
+              }
+            }}
+            onPointerUpCapture={(e) => {
+              if (e.pointerType === 'pen') {
+                activePenIdsRef.current.delete(e.pointerId);
+                lastPenActivityAtRef.current = performance.now();
+                stageSwipeRef.current = null;
+              }
+            }}
+            onPointerCancelCapture={(e) => {
+              if (e.pointerType === 'pen') {
+                activePenIdsRef.current.delete(e.pointerId);
+                lastPenActivityAtRef.current = performance.now();
+                stageSwipeRef.current = null;
+              }
+            }}
             onTouchStart={handleStageTouchStart}
             onTouchMove={handleStageTouchMove}
             onTouchEnd={handleStageTouchEnd}
             onWheel={handleStageWheel}
-            className={`slide-stage-wrapper flex-1 min-h-0 flex items-center justify-center overflow-hidden relative ${
+            className={`slide-stage-wrapper flex-1 min-h-0 flex items-center justify-center overflow-hidden overscroll-x-none relative ${
               compactBars ? 'p-0.5 sm:p-1' : 'p-1 sm:p-2'
             }`}
           >
@@ -2831,7 +2878,7 @@ function SlidesDeckInner({
               {/* Scrollable Slide Body (Header + Body + AnnotationCanvas together so finger scroll, wheel & swipe always work!) */}
               <div
                 ref={slideBodyRef}
-                className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col ${
+                className={`flex-1 min-h-0 overflow-y-auto overscroll-x-none custom-scrollbar flex flex-col ${
                   drawEnabled ? 'select-none' : 'select-text'
                 }`}
               >

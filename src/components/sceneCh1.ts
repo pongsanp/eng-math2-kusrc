@@ -250,11 +250,24 @@ export function renderChapter1Scene(
       addCoordinateBox(group, p2, '#0284c7', 0.58);
     }
 
-    addLabeledSphere(group, p1, '#6366f1', `P₁${fmtPoint(p1)}`, darkMode, 0.13);
-    addLabeledSphere(group, p2, '#0ea5e9', `P₂${fmtPoint(p2)}`, darkMode, 0.14);
+    const uHat = vecUnit(v);
+    const p1LabelOffset: Vec3 | undefined = uHat
+      ? [
+          -uHat[0] * 0.62,
+          -uHat[1] * 0.62,
+          -uHat[2] * 0.62 - (Math.abs(uHat[2]) < 0.35 ? 0.28 : 0.12),
+        ]
+      : undefined;
+    const p2LabelOffset: Vec3 | undefined = uHat
+      ? [uHat[0] * 0.42, uHat[1] * 0.42, uHat[2] * 0.42 + 0.22]
+      : undefined;
+
+    addLabeledSphere(group, p1, '#6366f1', `P₁${fmtPoint(p1)}`, darkMode, 0.13, 0.36, p1LabelOffset);
+    addLabeledSphere(group, p2, '#0ea5e9', `P₂${fmtPoint(p2)}`, darkMode, 0.14, 0.36, p2LabelOffset);
 
     addSolidVectorArrow(group, p1, v, '#0ea5e9', 'P₁P₂', darkMode, {
       labelMidpoint: true,
+      labelSideSign: 1,
     });
 
     if (showPositionVec && vecNorm(p1) > 1e-4) {
@@ -266,13 +279,16 @@ export function renderChapter1Scene(
     }
 
     if (showUnitVec) {
-      const uHat = vecUnit(v);
       if (uHat) {
         const unitOrigin: Vec3 = showPositionVec ? [0, 0, 0] : p1;
         addSolidVectorArrow(group, unitOrigin, uHat, '#f59e0b', 'û (Unit)', darkMode, {
           shaftRadius: 0.068,
           headRadius: 0.15,
           headLen: 0.28,
+          labelScale: 0.44,
+          labelSideSign: -1,
+          labelOffsetAlong: 0.78,
+          labelOffsetDist: 0.46,
         });
       }
     }
