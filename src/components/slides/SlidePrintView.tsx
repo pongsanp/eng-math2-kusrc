@@ -7,6 +7,7 @@ import {
   type PrintScope,
   type RenderedInkExport,
   type SlideLang,
+  type SlideSnippet,
 } from '../../slides/inkUtils';
 import { KaTeX } from '../KaTeX';
 import { RichMathText } from './RichMathText';
@@ -14,9 +15,52 @@ import { RichMathText } from './RichMathText';
 interface SlidePrintViewProps {
   includeInk: boolean;
   inkImagesBySlide: Record<number, RenderedInkExport>;
+  snippetsBySlide?: Record<number, SlideSnippet[]>;
   printScope: PrintScope;
   customPages?: CustomBlankPage[];
   lang?: SlideLang;
+}
+
+function getPrintSnippetToneClass(tone?: SlideSnippet['tone']): string {
+  if (tone === 'amber') return 'bg-amber-50 border-amber-300 text-amber-950';
+  if (tone === 'emerald') return 'bg-emerald-50 border-emerald-300 text-emerald-950';
+  if (tone === 'rose') return 'bg-rose-50 border-rose-300 text-rose-950';
+  return 'bg-sky-50 border-sky-300 text-sky-950';
+}
+
+function renderPrintSnippets(snippets?: SlideSnippet[]) {
+  if (!snippets || snippets.length === 0) return null;
+  return snippets.map((snip) => (
+    <div
+      key={snip.id}
+      style={{
+        left: `${snip.x * 100}%`,
+        top: `${snip.y * 100}%`,
+        width: `${snip.w * 100}%`,
+      }}
+      className={`absolute z-[15] rounded-xl border px-3 py-2 shadow-sm pointer-events-none ${
+        snip.kind === 'formula'
+          ? getPrintSnippetToneClass(snip.tone)
+          : snip.kind === 'prompt'
+            ? 'bg-sky-50 border-sky-300 text-slate-900'
+            : 'bg-slate-50 border-slate-300 text-slate-900'
+      }`}
+    >
+      {snip.label && (
+        <div className="text-[11px] font-bold opacity-75 mb-0.5">{snip.label}</div>
+      )}
+      {snip.latex && (
+        <div className="text-[18px] leading-normal overflow-hidden">
+          <KaTeX math={snip.latex} />
+        </div>
+      )}
+      {snip.text && (
+        <div className="text-[13px] font-semibold leading-snug whitespace-pre-line mt-0.5">
+          <RichMathText text={snip.text} />
+        </div>
+      )}
+    </div>
+  ));
 }
 
 function renderInkOverlayImg(inkExport?: RenderedInkExport) {
@@ -594,6 +638,7 @@ function renderPrintSlide(
   scopeText: string,
   lang: SlideLang,
   inkExport?: RenderedInkExport,
+  snippets?: SlideSnippet[],
 ) {
   const isEn = lang === 'en';
   const loc = getLocalizedSlide(slide, lang);
@@ -745,6 +790,9 @@ function renderPrintSlide(
             </div>
           )}
 
+          {/* Pasted formula / card snippets underneath ink */}
+          {includeInk && renderPrintSnippets(snippets)}
+
           {/* Transparent Handwritten Ink PNG Overlay (aligned 1:1 to Slide Body) */}
           {includeInk && renderInkOverlayImg(inkExport)}
         </div>
@@ -800,6 +848,7 @@ function renderPrintBlankPage(
   scopeText: string,
   lang: SlideLang,
   inkExport?: RenderedInkExport,
+  snippets?: SlideSnippet[],
 ) {
   const isEn = lang === 'en';
   const styleLabel = isEn
@@ -851,6 +900,7 @@ function renderPrintBlankPage(
                 className="h-full w-full rounded-2xl border border-dashed border-slate-300 bg-white"
                 style={getBlankPaperStyleCss(page.paperStyle)}
               />
+              {includeInk && renderPrintSnippets(snippets)}
               {includeInk && renderInkOverlayImg(inkExport)}
             </div>
           </div>
@@ -882,6 +932,7 @@ function renderPrintBlankPage(
 export function SlidePrintView({
   includeInk,
   inkImagesBySlide,
+  snippetsBySlide = {},
   printScope,
   customPages = [],
   lang = 'th',
@@ -919,6 +970,7 @@ export function SlidePrintView({
               scopeText,
               lang,
               inkImagesBySlide[entry.slide.id],
+              snippetsBySlide[entry.slide.id],
             )
           : renderPrintBlankPage(
               entry.page,
@@ -930,6 +982,7 @@ export function SlidePrintView({
               scopeText,
               lang,
               inkImagesBySlide[entry.page.id],
+              snippetsBySlide[entry.page.id],
             ),
       )}
     </div>

@@ -25,6 +25,7 @@ export function CrossTriplePanel({ state, lang = 'th', onChange }: CrossTriplePa
   const b = state.reverseOrder ? state.u : state.v;
   const cross = vecCross(a, b);
   const area = vecNorm(cross);
+  const displayArea = state.showTriangle ? area / 2 : area;
   const triple = scalarTriple(state.u, state.v, state.w);
   const volume = Math.abs(triple);
 
@@ -39,7 +40,7 @@ export function CrossTriplePanel({ state, lang = 'th', onChange }: CrossTriplePa
             <button
               key={p.id}
               type="button"
-              onClick={() => update(p.value)}
+              onClick={() => update({ showTriangle: false, ...p.value })}
               className="text-left px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-xs"
             >
               <div className="font-semibold text-slate-700 dark:text-slate-200 truncate">
@@ -135,12 +136,44 @@ export function CrossTriplePanel({ state, lang = 'th', onChange }: CrossTriplePa
           </div>
           <div className="flex justify-between px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900/80">
             <span className="font-semibold text-slate-600 dark:text-slate-300">
-              {isEn ? 'Parallelogram Area' : 'พื้นที่สี่เหลี่ยมด้านขนาน'}
+              {state.showTriangle
+                ? isEn
+                  ? 'Triangle Area'
+                  : 'พื้นที่สามเหลี่ยม (½ ||u × v||)'
+                : isEn
+                  ? 'Parallelogram Area'
+                  : 'พื้นที่สี่เหลี่ยมด้านขนาน'}
             </span>
             <span className="font-mono font-bold text-cyan-700 dark:text-cyan-300">
-              ||u × v|| = {fmtNum(area)}
+              {state.showTriangle ? '½||u × v||' : '||u × v||'} = {fmtNum(displayArea)}
             </span>
           </div>
+          {state.showAreaOrVolume && (
+            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+              <button
+                type="button"
+                onClick={() => update({ showTriangle: false })}
+                className={`py-1.5 px-2 rounded-lg border text-[11px] font-semibold transition ${
+                  !state.showTriangle
+                    ? 'border-cyan-500 bg-cyan-600 text-white'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {isEn ? 'Parallelogram' : 'สี่เหลี่ยมด้านขนาน'}
+              </button>
+              <button
+                type="button"
+                onClick={() => update({ showTriangle: true })}
+                className={`py-1.5 px-2 rounded-lg border text-[11px] font-semibold transition ${
+                  state.showTriangle
+                    ? 'border-cyan-500 bg-cyan-600 text-white'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {isEn ? 'Triangle (½)' : 'สามเหลี่ยม (½)'}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-3.5 rounded-2xl border border-violet-200 dark:border-violet-900/60 bg-violet-50/50 dark:bg-violet-950/25 space-y-2 text-xs">
@@ -172,10 +205,14 @@ export function CrossTriplePanel({ state, lang = 'th', onChange }: CrossTriplePa
         <span className="font-medium text-slate-700 dark:text-slate-200">
           {isEn
             ? state.subMode === 'cross'
-              ? 'Show Parallelogram Area'
+              ? state.showTriangle
+                ? 'Show Triangle Area'
+                : 'Show Parallelogram Area'
               : 'Show Parallelepiped Volume'
             : state.subMode === 'cross'
-              ? 'แสดงพื้นที่สี่เหลี่ยมด้านขนาน (Parallelogram)'
+              ? state.showTriangle
+                ? 'แสดงพื้นที่สามเหลี่ยม (Triangle)'
+                : 'แสดงพื้นที่สี่เหลี่ยมด้านขนาน (Parallelogram)'
               : 'แสดงกล่องทรงสี่เหลี่ยมด้านขนาน (Parallelepiped)'}
         </span>
         <input

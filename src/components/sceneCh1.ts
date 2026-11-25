@@ -6,6 +6,7 @@ import type {
   CrossTripleState,
   DotProjState,
   Lines3DState,
+  Vec3Tuple,
 } from '../types';
 import { BOX_LIMIT, clipSegmentToBox, mathVecToThree, type Vec3 } from '../math/coords';
 import { fmtNum } from '../math/latex';
@@ -32,6 +33,7 @@ import {
   addRightAngleMarker,
   addSolidVectorArrow,
   addThickCurve,
+  addTriangle,
 } from './sceneHelpers';
 
 export interface Chapter1SceneInput {
@@ -42,6 +44,49 @@ export interface Chapter1SceneInput {
   crossTriple: CrossTripleState;
   lines3d: Lines3DState;
   darkMode: boolean;
+}
+
+export function getCh1SceneExtent(input: Omit<Chapter1SceneInput, 'darkMode'>): number {
+  const { ch1Tab, coordsVec, arithmetic, dotProj, crossTriple, lines3d } = input;
+  const maxAbs = (...vecs: Vec3Tuple[]): number => {
+    let m = 0;
+    for (const v of vecs) {
+      m = Math.max(m, Math.abs(v[0]), Math.abs(v[1]), Math.abs(v[2]));
+    }
+    return m;
+  };
+  let needed = BOX_LIMIT;
+  if (ch1Tab === 'coords_vec') {
+    needed = Math.max(needed, maxAbs(coordsVec.p1, coordsVec.p2) + 0.8);
+  } else if (ch1Tab === 'arithmetic') {
+    const res =
+      arithmetic.operation === 'add'
+        ? vecAdd(arithmetic.u, arithmetic.v)
+        : arithmetic.operation === 'sub'
+          ? vecSub(arithmetic.u, arithmetic.v)
+          : vecScale(arithmetic.u, arithmetic.scalarK);
+    needed = Math.max(needed, maxAbs(arithmetic.u, arithmetic.v, res) + 0.8);
+  } else if (ch1Tab === 'dot_proj') {
+    needed = Math.max(needed, maxAbs(dotProj.u, dotProj.v) + 0.8);
+  } else if (ch1Tab === 'cross_triple') {
+    const c = vecCross(crossTriple.u, crossTriple.v);
+    needed = Math.max(
+      needed,
+      maxAbs(crossTriple.u, crossTriple.v, crossTriple.w, c) + 0.8,
+    );
+  } else if (ch1Tab === 'lines3d') {
+    const effDir = lines3d.inputMode === 'two_points' ? vecSub(lines3d.p2, lines3d.p0) : lines3d.dir;
+    const pt = vecAdd(lines3d.p0, vecScale(effDir, lines3d.t));
+    const extras: Vec3Tuple[] = [lines3d.p0, lines3d.p2, pt];
+    if (lines3d.showSecondLine && lines3d.p0Second) {
+      extras.push(lines3d.p0Second);
+      if (lines3d.dirSecond) {
+        extras.push(vecAdd(lines3d.p0Second, lines3d.dirSecond));
+      }
+    }
+    needed = Math.max(needed, maxAbs(...extras) + 1.2);
+  }
+  return Math.max(BOX_LIMIT, Math.ceil(needed));
 }
 
 export function renderChapter1Scene(
@@ -367,7 +412,7 @@ export function renderChapter1Scene(
   }
 
   if (ch1Tab === 'cross_triple') {
-    const { subMode, u, v, w, reverseOrder, showAreaOrVolume } = crossTriple;
+    const { subMode, u, v, w, reverseOrder, showAreaOrVolume, showTriangle } = crossTriple;
     addSolidVectorArrow(group, [0, 0, 0], u, '#0ea5e9', 'u', darkMode);
     addSolidVectorArrow(group, [0, 0, 0], v, '#10b981', 'v', darkMode);
 
@@ -378,7 +423,11 @@ export function renderChapter1Scene(
       const label = reverseOrder ? 'v × u' : 'u × v';
 
       if (showAreaOrVolume && vecNorm(u) > 1e-4 && vecNorm(v) > 1e-4) {
-        addParallelogram(group, [0, 0, 0], u, v, '#06b6d4', 0.28);
+        if (showTriangle) {
+          addTriangle(group, [0, 0, 0], u, v, '#06b6d4', 0.34);
+        } else {
+          addParallelogram(group, [0, 0, 0], u, v, '#06b6d4', 0.28);
+        }
       }
 
       if (vecNorm(c) > 1e-4) {
@@ -420,7 +469,8 @@ export function renderChapter1Scene(
   }
 
   // Tab 5: Lines in 3D Space
-  const { inputMode, p0, dir, p2, t, showPositionVectors } = lines3d;
+  const lineExtent = getCh1SceneExtent({ ch1Tab, coordsVec, arithmetic, dotProj, crossTriple, lines3d });
+  const { inputMode, p0, dir, p2, t, showPositionVectors, showSecondLine, p0Second, dirSecond } = lines3d;
   const effDir = inputMode === 'two_points' ? vecSub(p2, p0) : dir;
   const dNorm = vecNorm(effDir);
 
@@ -439,19 +489,40 @@ export function renderChapter1Scene(
   // Clipped infinite line tube
   const dHat = vecScale(effDir, 1 / dNorm);
   const seg = clipSegmentToBox(
-    vecSub(p0, vecScale(dHat, 20)),
-    vecAdd(p0, vecScale(dHat, 20)),
-    BOX_LIMIT,
+    vecSub(p0, vecScale(dHat, 40)),
+    vecAdd(p0, vecScale(dHat, 40)),
+    lineExtent,
   );
   if (seg) {
     addThickCurve(group, seg, '#3b82f6', 0.045);
   }
 
   // Direction vector arrow anchored at P0
-  addSolidVectorArrow(group, p0, effDir, '#10b981', 'v', darkMode, {
+  addSolidVectorArrow(group, p0, effDir, '#10b981', showSecondLine ? 'v₁' : 'v', darkMode, {
     shaftRadius: 0.052,
     headRadius: 0.14,
   });
+
+  // Optional 2nd line L2 for parallel / angle comparisons
+  if (showSecondLine && p0Second && dirSecond) {
+    addLabeledSphere(group, p0Second, '#d946ef', `P₂,${fmtPoint(p0Second)}`, darkMode, 0.13);
+    const d2Norm = vecNorm(dirSecond);
+    if (d2Norm > 1e-4) {
+      const d2Hat = vecScale(dirSecond, 1 / d2Norm);
+      const seg2 = clipSegmentToBox(
+        vecSub(p0Second, vecScale(d2Hat, 40)),
+        vecAdd(p0Second, vecScale(d2Hat, 40)),
+        lineExtent,
+      );
+      if (seg2) {
+        addThickCurve(group, seg2, '#d946ef', 0.042);
+      }
+      addSolidVectorArrow(group, p0Second, dirSecond, '#e11d48', 'v₂', darkMode, {
+        shaftRadius: 0.048,
+        headRadius: 0.13,
+      });
+    }
+  }
 
   // Moving point P(t) = p0 + t * effDir
   const pt = vecAdd(p0, vecScale(effDir, t));
@@ -488,13 +559,13 @@ export function renderChapter1Scene(
 
   // Notice if P(t) travels outside visible cube
   if (
-    Math.abs(pt[0]) > BOX_LIMIT ||
-    Math.abs(pt[1]) > BOX_LIMIT ||
-    Math.abs(pt[2]) > BOX_LIMIT
+    Math.abs(pt[0]) > lineExtent ||
+    Math.abs(pt[1]) > lineExtent ||
+    Math.abs(pt[2]) > lineExtent
   ) {
     return {
-      th: `จุด P(${fmtNum(t)}) เคลื่อนที่ออกนอกกรอบ [-${BOX_LIMIT}, ${BOX_LIMIT}]³ เล็กน้อย`,
-      en: `Point P(${fmtNum(t)}) is slightly outside the [-${BOX_LIMIT}, ${BOX_LIMIT}]³ box`,
+      th: `จุด P(${fmtNum(t)}) เคลื่อนที่ออกนอกกรอบ [-${lineExtent}, ${lineExtent}]³ เล็กน้อย`,
+      en: `Point P(${fmtNum(t)}) is slightly outside the [-${lineExtent}, ${lineExtent}]³ box`,
     };
   }
 

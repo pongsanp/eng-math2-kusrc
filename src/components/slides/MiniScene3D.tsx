@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ArrowLeftRight, ExternalLink, RotateCcw } from 'lucide-react';
-import type { SlideEmbed3DKind, SlideExampleScene3D } from '../../slides/ch1SlidesData';
+import type {
+  Ch1DashboardTarget,
+  SlideEmbed3DKind,
+  SlideExampleScene3D,
+} from '../../slides/ch1SlidesData';
 import type { SlideLang } from '../../slides/inkUtils';
 import type { Vec3Tuple } from '../../types';
 import { mathVecToThree } from '../../math/coords';
@@ -29,10 +33,97 @@ interface MiniScene3DProps {
   aboveInk?: boolean;
   lang?: SlideLang;
   onOpenDashboard?: () => void;
+  onOpenDashboardTarget?: (target: Ch1DashboardTarget) => void;
 }
 
 const DEFAULT_ISO: Vec3Tuple = [8.2, 8.2, 6.2];
 const COMPACT_ISO: Vec3Tuple = [9.8, 9.8, 7.4];
+
+interface ConceptBaseOptions {
+  plotStep: 1 | 2 | 3;
+  plotOctNeg: boolean;
+  slideProgress: number;
+  arithOp: 'add' | 'sub';
+  projObtuse: boolean;
+  crossFlip: boolean;
+  coplanar: boolean;
+  lineT: number;
+}
+
+const EMBED_TAB_MAP: Record<
+  SlideEmbed3DKind,
+  'coords_vec' | 'arithmetic' | 'dot_proj' | 'cross_triple' | 'lines3d'
+> = {
+  plot_point: 'coords_vec',
+  arithmetic: 'arithmetic',
+  dir_angles: 'dot_proj',
+  projection: 'dot_proj',
+  cross: 'cross_triple',
+  triple: 'cross_triple',
+  line3d: 'lines3d',
+};
+
+function buildConceptInputs(embed: SlideEmbed3DKind, opts: ConceptBaseOptions) {
+  return {
+    coordsVec: {
+      subMode: 'single_point' as const,
+      plotStep: opts.plotStep,
+      showPlaneProjections: false,
+      showPlaneXY: false,
+      showPlaneXZ: false,
+      showPlaneYZ: false,
+      highlightOctant: false,
+      p1: [0, 0, 0] as Vec3Tuple,
+      p2: (opts.plotOctNeg ? [-2, 3, 2] : [2, 3, 2]) as Vec3Tuple,
+      showCoordBox: true,
+      showPositionVec: false,
+      showUnitVec: false,
+    },
+    arithmetic: {
+      u: [2, 0.5, 1] as Vec3Tuple,
+      v: [0.5, 2.5, 1.5] as Vec3Tuple,
+      scalarK: 1.5,
+      operation: opts.arithOp,
+      slideProgress: opts.slideProgress,
+      showParallelogram: true,
+    },
+    dotProj: {
+      subMode: (embed === 'dir_angles' ? 'dir_angles' : 'dot_proj') as 'dot_proj' | 'dir_angles',
+      u: (opts.projObtuse ? [-1.5, 2, 2] : [2, 3, 2]) as Vec3Tuple,
+      v: [3, 1, 0] as Vec3Tuple,
+      showProjection: true,
+      showAngleArc: true,
+    },
+    crossTriple: {
+      subMode: (embed === 'triple' ? 'triple' : 'cross') as 'cross' | 'triple',
+      u: (embed === 'triple' ? [2, 0, 0] : [2, 1, 0]) as Vec3Tuple,
+      v: (embed === 'triple' ? [0, 2, 0] : [0, 2, 1.5]) as Vec3Tuple,
+      w: (opts.coplanar ? [1.5, 1.5, 0] : [0.5, 0.5, 2.5]) as Vec3Tuple,
+      reverseOrder: opts.crossFlip,
+      showAreaOrVolume: true,
+      showTriangle: false,
+    },
+    lines3d: {
+      inputMode: 'point_dir' as const,
+      p0: [1, -1, 1] as Vec3Tuple,
+      dir: [1, 2, 0.5] as Vec3Tuple,
+      p2: [2, 2, 2] as Vec3Tuple,
+      t: opts.lineT,
+      isAnimatingT: false,
+      showPositionVectors: true,
+    },
+  };
+}
+
+function buildConceptTarget(embed: SlideEmbed3DKind, opts: ConceptBaseOptions): Ch1DashboardTarget {
+  const inputs = buildConceptInputs(embed, opts);
+  const tab = EMBED_TAB_MAP[embed];
+  if (tab === 'coords_vec') return { tab, patch: inputs.coordsVec };
+  if (tab === 'arithmetic') return { tab, patch: inputs.arithmetic };
+  if (tab === 'dot_proj') return { tab, patch: inputs.dotProj };
+  if (tab === 'cross_triple') return { tab, patch: inputs.crossTriple };
+  return { tab: 'lines3d', patch: inputs.lines3d };
+}
 
 export function MiniScene3D({
   embed,
@@ -42,6 +133,7 @@ export function MiniScene3D({
   aboveInk = false,
   lang = 'th',
   onOpenDashboard,
+  onOpenDashboardTarget,
 }: MiniScene3DProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -263,71 +355,43 @@ export function MiniScene3D({
 
     if (!embed) return;
 
-    const baseInputs = {
-      coordsVec: {
-        subMode: 'single_point' as const,
-        plotStep,
-        showPlaneProjections: true,
-        showPlaneXY: false,
-        showPlaneXZ: false,
-        showPlaneYZ: false,
-        highlightOctant: false,
-        p1: [0, 0, 0] as Vec3Tuple,
-        p2: (plotOctNeg ? [-2, 3, 2] : [2, 3, 2]) as Vec3Tuple,
-        showCoordBox: true,
-        showPositionVec: false,
-        showUnitVec: false,
-      },
-      arithmetic: {
-        u: [2, 0.5, 1] as Vec3Tuple,
-        v: [0.5, 2.5, 1.5] as Vec3Tuple,
-        scalarK: 1.5,
-        operation: arithOp,
-        slideProgress,
-        showParallelogram: true,
-      },
-      dotProj: {
-        subMode: (embed === 'dir_angles' ? 'dir_angles' : 'dot_proj') as 'dot_proj' | 'dir_angles',
-        u: (projObtuse ? [-1.5, 2, 2] : [2, 3, 2]) as Vec3Tuple,
-        v: [3, 1, 0] as Vec3Tuple,
-        showProjection: true,
-        showAngleArc: true,
-      },
-      crossTriple: {
-        subMode: (embed === 'triple' ? 'triple' : 'cross') as 'cross' | 'triple',
-        u: (embed === 'triple' ? [2, 0, 0] : [2, 1, 0]) as Vec3Tuple,
-        v: (embed === 'triple' ? [0, 2, 0] : [0, 2, 1.5]) as Vec3Tuple,
-        w: (coplanar ? [1.5, 1.5, 0] : [0.5, 0.5, 2.5]) as Vec3Tuple,
-        reverseOrder: crossFlip,
-        showAreaOrVolume: true,
-      },
-      lines3d: {
-        inputMode: 'point_dir' as const,
-        p0: [1, -1, 1] as Vec3Tuple,
-        dir: [1, 2, 0.5] as Vec3Tuple,
-        p2: [2, 2, 2] as Vec3Tuple,
-        t: lineT,
-        isAnimatingT: false,
-        showPositionVectors: true,
-      },
-      darkMode: false,
-    };
-
-    const tabMap: Record<SlideEmbed3DKind, 'coords_vec' | 'arithmetic' | 'dot_proj' | 'cross_triple' | 'lines3d'> = {
-      plot_point: 'coords_vec',
-      arithmetic: 'arithmetic',
-      dir_angles: 'dot_proj',
-      projection: 'dot_proj',
-      cross: 'cross_triple',
-      triple: 'cross_triple',
-      line3d: 'lines3d',
-    };
+    const baseInputs = buildConceptInputs(embed, {
+      plotStep,
+      plotOctNeg,
+      slideProgress,
+      arithOp,
+      projObtuse,
+      crossFlip,
+      coplanar,
+      lineT,
+    });
 
     renderChapter1Scene(group, {
-      ch1Tab: tabMap[embed],
+      ch1Tab: EMBED_TAB_MAP[embed],
       ...baseInputs,
+      darkMode: false,
     });
   }, [embed, customScene, compact, lang, plotStep, plotOctNeg, slideProgress, arithOp, projObtuse, crossFlip, coplanar, lineT]);
+
+  const canOpenDashboard = Boolean(onOpenDashboard || (onOpenDashboardTarget && embed));
+  const handleOpenClick = () => {
+    if (onOpenDashboardTarget && embed) {
+      onOpenDashboardTarget(
+        buildConceptTarget(embed, {
+          plotStep,
+          plotOctNeg,
+          slideProgress,
+          arithOp,
+          projObtuse,
+          crossFlip,
+          coplanar,
+          lineT,
+        }),
+      );
+      return;
+    }
+    onOpenDashboard?.();
+  };
 
   const isEn = lang === 'en';
   const resetCam = () => {
@@ -351,10 +415,10 @@ export function MiniScene3D({
           className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
         />
         <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-          {onOpenDashboard && (
+          {canOpenDashboard && (
             <button
               type="button"
-              onClick={onOpenDashboard}
+              onClick={handleOpenClick}
               title={
                 isEn
                   ? 'Open this topic & values in full 3D Dashboard'

@@ -1,9 +1,10 @@
-import type { CustomBlankPage, InkStroke } from './inkUtils';
+import type { CustomBlankPage, InkStroke, SlideSnippet } from './inkUtils';
 
 const DB_NAME = 'eng_math_2_slides_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'slide_ink';
 const CUSTOM_PAGES_STORE = 'custom_pages';
+const SNIPPETS_STORE = 'slide_snippets';
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
@@ -24,6 +25,9 @@ function openInkDb(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(CUSTOM_PAGES_STORE)) {
           db.createObjectStore(CUSTOM_PAGES_STORE);
+        }
+        if (!db.objectStoreNames.contains(SNIPPETS_STORE)) {
+          db.createObjectStore(SNIPPETS_STORE);
         }
       };
 
@@ -342,6 +346,151 @@ export async function saveCustomBlankPages(
       const tx = db.transaction(CUSTOM_PAGES_STORE, 'readwrite');
       const store = tx.objectStore(CUSTOM_PAGES_STORE);
       store.put(pages, deckId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      dbPromise = null;
+      resolve();
+    }
+  });
+}
+
+function sanitizeSnippetsMap(raw: unknown): Record<number, SlideSnippet[]> {
+  const out: Record<number, SlideSnippet[]> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const slideId = Number(k);
+    if (Number.isFinite(slideId) && Array.isArray(v) && v.length > 0) {
+      out[slideId] = v.filter(
+        (s): s is SlideSnippet =>
+          Boolean(s) &&
+          typeof s === 'object' &&
+          typeof (s as SlideSnippet).id === 'string' &&
+          typeof (s as SlideSnippet).x === 'number' &&
+          typeof (s as SlideSnippet).y === 'number',
+      );
+    }
+  }
+  return out;
+}
+
+function snippetsLsKey(deckId: string): string {
+  return `eng_math_2_${deckId}_snippets_v1`;
+}
+
+function readSnippetsLs(deckId: string): Record<number, SlideSnippet[]> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(snippetsLsKey(deckId));
+    return raw ? sanitizeSnippetsMap(JSON.parse(raw) as unknown) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSnippetsLs(deckId: string, data: Record<number, SlideSnippet[]>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(snippetsLsKey(deckId), JSON.stringify(data));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+export async function loadDeckSnippets(deckId: string): Promise<Record<number, SlideSnippet[]>> {
+  const db = await openInkDb();
+  if (!db || !db.objectStoreNames.contains(SNIPPETS_STORE)) {
+    return readSnippetsLs(deckId);
+  }
+  return new Promise<Record<number, SlideSnippet[]>>((resolve) => {
+    const result: Record<number, SlideSnippet[]> = {};
+    try {
+      const tx = db.transaction(SNIPPETS_STORE, 'readonly');
+      const store = tx.objectStore(SNIPPETS_STORE);
+      const range = IDBKeyRange.bound(`${deckId}:`, `${deckId}:\uffff`);
+      const req = store.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (typeof cursor.key === 'string' && Array.isArray(cursor.value)) {
+            const slideId = Number(cursor.key.slice(deckId.length + 1));
+            if (Number.isFinite(slideId) && cursor.value.length > 0) {
+              result[slideId] = cursor.value as SlideSnippet[];
+            }
+          }
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve(Object.keys(result).length > 0 ? result : readSnippetsLs(deckId));
+      tx.onerror = () => resolve(readSnippetsLs(deckId));
+      tx.onabort = () => resolve(readSnippetsLs(deckId));
+    } catch {
+      resolve(readSnippetsLs(deckId));
+    }
+  });
+}
+
+export async function saveSlideSnippets(
+  deckId: string,
+  slideId: number,
+  snippets: SlideSnippet[],
+): Promise<void> {
+  const ls = readSnippetsLs(deckId);
+  if (snippets.length === 0) {
+    delete ls[slideId];
+  } else {
+    ls[slideId] = snippets;
+  }
+  writeSnippetsLs(deckId, ls);
+
+  const db = await openInkDb();
+  if (!db || !db.objectStoreNames.contains(SNIPPETS_STORE)) return;
+
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(SNIPPETS_STORE, 'readwrite');
+      const store = tx.objectStore(SNIPPETS_STORE);
+      const key = makeKey(deckId, slideId);
+      if (snippets.length === 0) {
+        store.delete(key);
+      } else {
+        store.put(snippets, key);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      dbPromise = null;
+      resolve();
+    }
+  });
+}
+
+export async function clearDeckSnippets(deckId: string): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(snippetsLsKey(deckId));
+    } catch {
+      // ignore
+    }
+  }
+  const db = await openInkDb();
+  if (!db || !db.objectStoreNames.contains(SNIPPETS_STORE)) return;
+
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(SNIPPETS_STORE, 'readwrite');
+      const store = tx.objectStore(SNIPPETS_STORE);
+      const range = IDBKeyRange.bound(`${deckId}:`, `${deckId}:\uffff`);
+      const req = store.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
       tx.onabort = () => resolve();

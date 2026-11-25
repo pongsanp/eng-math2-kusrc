@@ -1982,7 +1982,7 @@ export function getExampleDashboardTarget(
     case 26:
       return {
         tab: 'cross_triple',
-        patch: { subMode: 'cross', u: [-2, -1, 2], v: [2, -2, 3], reverseOrder: false, showAreaOrVolume: true },
+        patch: { subMode: 'cross', u: [-2, -1, 2], v: [2, -2, 3], reverseOrder: false, showAreaOrVolume: true, showTriangle: true },
       };
     case 29:
       return {
@@ -1998,7 +1998,15 @@ export function getExampleDashboardTarget(
     case 32:
       return {
         tab: 'lines3d',
-        patch: { inputMode: 'point_dir', p0: [1, -3, 2], dir: [2, 5, 1], t: 1 },
+        patch: {
+          inputMode: 'point_dir',
+          p0: [1, -3, 2],
+          dir: [2, 5, 1],
+          t: 1,
+          showSecondLine: true,
+          p0Second: [1, 2, 0],
+          dirSecond: [-1, 6, 2],
+        },
       };
     case 33:
       return exampleIdx === 1
@@ -2013,18 +2021,28 @@ export function getExampleDashboardTarget(
     case 34:
       return exampleIdx === 1
         ? {
-            tab: 'dot_proj',
+            tab: 'lines3d',
             patch: {
-              subMode: 'dot_proj',
-              u: [1, 1.4142, 1],
-              v: [1.4142, 0, 1.4142],
-              showProjection: false,
-              showAngleArc: true,
+              inputMode: 'point_dir',
+              p0: [2, -3, 1],
+              dir: [1, 1.4142, 1],
+              t: 1,
+              showSecondLine: true,
+              p0Second: [-4, 3, 1],
+              dirSecond: [1.4142, 0, 1.4142],
             },
           }
         : {
             tab: 'lines3d',
-            patch: { inputMode: 'point_dir', p0: [2, 1, -4], dir: [4, 7, 1], t: 1 },
+            patch: {
+              inputMode: 'point_dir',
+              p0: [2, 1, -4],
+              dir: [4, 7, 1],
+              t: 1,
+              showSecondLine: true,
+              p0Second: [1, -3, 2],
+              dirSecond: [4, 7, 1],
+            },
           };
     default:
       return null;

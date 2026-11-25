@@ -280,6 +280,18 @@ export function drawLaserTip(
   ctx.fill();
 }
 
+export interface SlideSnippet {
+  id: string;
+  x: number; // normalized [0..0.9]
+  y: number; // normalized [-headerRatio..0.95] (0..1 = body)
+  w: number; // normalized width fraction [0.2..0.9]
+  kind: 'formula' | 'card' | 'prompt';
+  label?: string;
+  latex?: string;
+  text?: string;
+  tone?: 'sky' | 'emerald' | 'amber' | 'rose' | 'slate';
+}
+
 export interface InkStroke {
   color: string;
   width: number;

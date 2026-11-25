@@ -19,9 +19,15 @@ import {
   type LaserStyle,
   type SelectionShape,
   type SlideBBox,
+  type SlideSnippet,
 } from '../../slides/inkUtils';
 
 export type { InkStroke };
+
+export interface SlideSnippetHit {
+  snippet: SlideSnippet;
+  normBox: SlideBBox;
+}
 
 interface AnnotationCanvasProps {
   strokes: InkStroke[];
@@ -42,7 +48,18 @@ interface AnnotationCanvasProps {
   onEraseStrokes?: (remainingStrokes: InkStroke[]) => void;
   onReplaceStrokes?: (nextStrokes: InkStroke[]) => void;
   onCopyStrokes?: (copied: InkStroke[]) => void;
+  findSnippetsInSelection?: (
+    shape: SelectionShape,
+    points: Array<[number, number]>,
+    isTap: boolean,
+  ) => SlideSnippetHit[];
+  onCopySnippets?: (copied: SlideSnippet[]) => void;
 }
+
+const LINE_SNAP_HOLD_MS = 480;
+const LINE_SNAP_STILL_PX = 8;
+const LINE_SNAP_MIN_LEN_PX = 34;
+const LINE_SNAP_MIN_SPAN_PX = 24;
 
 function getCanvasScale(canvas: HTMLCanvasElement): number {
   const cw = canvas.clientWidth || 1280;
@@ -68,6 +85,8 @@ export function AnnotationCanvas({
   onEraseStrokes,
   onReplaceStrokes,
   onCopyStrokes,
+  findSnippetsInSelection,
+  onCopySnippets,
 }: AnnotationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const laserCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -82,9 +101,14 @@ export function AnnotationCanvas({
     contextKey: string;
     ackTriggerSeq?: number;
   } | null>(null);
+  const [snippetSelection, setSnippetSelection] = useState<{
+    hits: SlideSnippetHit[];
+    contextKey: string;
+  } | null>(null);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const [copiedFeedback, setCopiedFeedback] = useState(false);
   const selectedIndicesRef = useRef<number[]>([]);
+  const selectedSnippetsRef = useRef<SlideSnippetHit[]>([]);
   const selectionDraftRef = useRef<Array<[number, number]> | null>(null);
   const dragStateRef = useRef<{
     startPt: [number, number];
@@ -106,6 +130,13 @@ export function AnnotationCanvas({
     return base.filter((idx) => idx >= 0 && idx < strokes.length && !strokes[idx]?.isEraser);
   }, [drawEnabled, selectTrigger, selectionContextKey, strokes, toolMode, userSelection]);
 
+  const selectedSnippets = useMemo(() => {
+    if (!drawEnabled || toolMode !== 'select') return [];
+    return snippetSelection && snippetSelection.contextKey === selectionContextKey
+      ? snippetSelection.hits
+      : [];
+  }, [drawEnabled, selectionContextKey, snippetSelection, toolMode]);
+
   const setSelectedIndicesSafe = useCallback(
     (indices: number[]) => {
       setUserSelection({
@@ -117,6 +148,13 @@ export function AnnotationCanvas({
     [selectTrigger?.seq, selectionContextKey],
   );
 
+  const setSelectedSnippetsSafe = useCallback(
+    (hits: SlideSnippetHit[]) => {
+      setSnippetSelection({ hits, contextKey: selectionContextKey });
+    },
+    [selectionContextKey],
+  );
+
   useEffect(() => {
     strokesLatestRef.current = strokes;
   }, [strokes]);
@@ -124,6 +162,10 @@ export function AnnotationCanvas({
   useEffect(() => {
     selectedIndicesRef.current = selectedIndices;
   }, [selectedIndices]);
+
+  useEffect(() => {
+    selectedSnippetsRef.current = selectedSnippets;
+  }, [selectedSnippets]);
 
   const laserStrokesRef = useRef<Array<Array<[number, number]>>>([]);
   const activeLaserStrokeRef = useRef<Array<[number, number]> | null>(null);
@@ -181,6 +223,45 @@ export function AnnotationCanvas({
     }
   }, [getStageLayout, strokes]);
 
+  const snapHoldTimerRef = useRef<number | null>(null);
+  const lineSnapRef = useRef<{
+    snapped: boolean;
+    startPt: [number, number];
+    holdPt: [number, number];
+    lastPt: [number, number];
+    pathLenPx: number;
+  } | null>(null);
+
+  const clearLineSnapTimer = useCallback(() => {
+    if (snapHoldTimerRef.current !== null) {
+      window.clearTimeout(snapHoldTimerRef.current);
+      snapHoldTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleLineSnap = useCallback(
+    (stageW: number, stageBodyH: number) => {
+      clearLineSnapTimer();
+      snapHoldTimerRef.current = window.setTimeout(() => {
+        snapHoldTimerRef.current = null;
+        const snap = lineSnapRef.current;
+        const stroke = activeStrokeRef.current;
+        if (!snap || snap.snapped || !stroke || stroke.isEraser) return;
+        const directSpanPx = Math.hypot(
+          (snap.lastPt[0] - snap.startPt[0]) * stageW,
+          (snap.lastPt[1] - snap.startPt[1]) * stageBodyH,
+        );
+        if (snap.pathLenPx < LINE_SNAP_MIN_LEN_PX || directSpanPx < LINE_SNAP_MIN_SPAN_PX) {
+          return;
+        }
+        snap.snapped = true;
+        stroke.points = [snap.startPt, snap.lastPt];
+        redrawAll();
+      }, LINE_SNAP_HOLD_MS);
+    },
+    [clearLineSnapTimer, redrawAll],
+  );
+
   const drawSelectionOverlay = useCallback(() => {
     const overlay = laserCanvasRef.current;
     if (!overlay || toolMode !== 'select') return;
@@ -226,6 +307,23 @@ export function AnnotationCanvas({
       return;
     }
 
+    if (selectedSnippets.length > 0) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2 * scale;
+      ctx.setLineDash([6 * scale, 4 * scale]);
+      for (const hit of selectedSnippets) {
+        const sx = hit.normBox.minX * w;
+        const sy = toCanvasY(hit.normBox.minY);
+        const sw = Math.max(12 * scale, (hit.normBox.maxX - hit.normBox.minX) * w);
+        const sh = Math.max(12 * scale, (hit.normBox.maxY - hit.normBox.minY) * bodyFrac * h);
+        ctx.fillRect(sx, sy, sw, sh);
+        ctx.strokeRect(sx, sy, sw, sh);
+      }
+      ctx.restore();
+    }
+
     if (selectedIndices.length === 0) return;
     const chosen = selectedIndices.map((idx) => strokesLatestRef.current[idx]).filter(Boolean);
     const bbox = computeStrokesBBox(chosen);
@@ -265,7 +363,7 @@ export function AnnotationCanvas({
       ctx.strokeRect(cx - hs / 2, cy - hs / 2, hs, hs);
     }
     ctx.restore();
-  }, [drawEnabled, getStageLayout, selectedIndices, selectionShape, toolMode]);
+  }, [drawEnabled, getStageLayout, selectedIndices, selectedSnippets, selectionShape, toolMode]);
 
   const ensureLaserLoop = useCallback(() => {
     if (laserRafRef.current !== null) return;
@@ -398,8 +496,10 @@ export function AnnotationCanvas({
       activePointerTypeRef.current = null;
       activeStrokeRef.current = null;
       lastEraserPtRef.current = null;
+      lineSnapRef.current = null;
+      clearLineSnapTimer();
     }
-  }, [drawEnabled, toolMode, laserStyle]);
+  }, [clearLineSnapTimer, drawEnabled, toolMode, laserStyle]);
 
   useEffect(() => {
     return () => {
@@ -410,8 +510,9 @@ export function AnnotationCanvas({
       if (copiedTimerRef.current !== null) {
         window.clearTimeout(copiedTimerRef.current);
       }
+      clearLineSnapTimer();
     };
-  }, []);
+  }, [clearLineSnapTimer]);
 
   // Prevent iOS/iPadOS Safari from intercepting Apple Pencil (or single finger when !pencilOnly),
   // while cancelling accidental single-finger touch strokes if a 2-finger pinch begins.
@@ -425,6 +526,8 @@ export function AnnotationCanvas({
           activePointerIdRef.current = null;
           activePointerTypeRef.current = null;
           activeStrokeRef.current = null;
+          lineSnapRef.current = null;
+          clearLineSnapTimer();
           selectionDraftRef.current = null;
           redrawAll();
           drawSelectionOverlay();
@@ -455,7 +558,7 @@ export function AnnotationCanvas({
       canvas.removeEventListener('gesturestart', preventGesture);
       canvas.removeEventListener('gesturechange', preventGesture);
     };
-  }, [drawEnabled, drawSelectionOverlay, pencilOnly, redrawAll]);
+  }, [clearLineSnapTimer, drawEnabled, drawSelectionOverlay, pencilOnly, redrawAll]);
 
   const toNormFromClient = (
     clientX: number,
@@ -471,17 +574,33 @@ export function AnnotationCanvas({
   };
 
   const selectedBBox = useMemo(() => {
-    if (!drawEnabled || toolMode !== 'select' || selectedIndices.length === 0) return null;
-    const chosen = selectedIndices.map((idx) => strokes[idx]).filter(Boolean);
-    return computeStrokesBBox(chosen);
-  }, [drawEnabled, selectedIndices, strokes, toolMode]);
+    if (!drawEnabled || toolMode !== 'select') return null;
+    const boxes: SlideBBox[] = [];
+    if (selectedIndices.length > 0) {
+      const chosen = selectedIndices.map((idx) => strokes[idx]).filter(Boolean);
+      const sb = computeStrokesBBox(chosen);
+      if (sb) boxes.push(sb);
+    }
+    for (const hit of selectedSnippets) {
+      boxes.push(hit.normBox);
+    }
+    if (boxes.length === 0) return null;
+    return {
+      minX: Math.min(...boxes.map((b) => b.minX)),
+      minY: Math.min(...boxes.map((b) => b.minY)),
+      maxX: Math.max(...boxes.map((b) => b.maxX)),
+      maxY: Math.max(...boxes.map((b) => b.maxY)),
+    };
+  }, [drawEnabled, selectedIndices, selectedSnippets, strokes, toolMode]);
 
   const handleCopySelected = () => {
-    const chosen = selectedIndicesRef.current
+    const chosenStrokes = selectedIndicesRef.current
       .map((idx) => strokesLatestRef.current[idx])
       .filter((st): st is InkStroke => Boolean(st && !st.isEraser));
-    if (chosen.length === 0) return;
-    onCopyStrokes?.(chosen);
+    const chosenSnippets = selectedSnippetsRef.current.map((h) => h.snippet);
+    if (chosenStrokes.length === 0 && chosenSnippets.length === 0) return;
+    onCopyStrokes?.(chosenStrokes);
+    onCopySnippets?.(chosenSnippets);
     setCopiedFeedback(true);
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => setCopiedFeedback(false), 1400);
@@ -570,6 +689,7 @@ export function AnnotationCanvas({
       }
 
       setSelectedIndicesSafe([]);
+      setSelectedSnippetsSafe([]);
       selectionDraftRef.current = selectionShape === 'rect' ? [pt, pt] : [pt];
       drawSelectionOverlay();
       return;
@@ -598,6 +718,22 @@ export function AnnotationCanvas({
       points: [pt],
     };
     activeStrokeRef.current = stroke;
+
+    if (!stroke.isEraser) {
+      const stageW = canvas.clientWidth || 1280;
+      const stageBodyH = (canvas.clientHeight || 686) * layout.bodyFrac;
+      lineSnapRef.current = {
+        snapped: false,
+        startPt: pt,
+        holdPt: pt,
+        lastPt: pt,
+        pathLenPx: 0,
+      };
+      scheduleLineSnap(stageW, stageBodyH);
+    } else {
+      lineSnapRef.current = null;
+      clearLineSnapTimer();
+    }
 
     // Draw initial dot immediately without redrawing prior strokes
     const ctx = canvas.getContext('2d');
@@ -743,6 +879,35 @@ export function AnnotationCanvas({
     const bodyH = h * layout.bodyFrac;
     const offsetY = h * layout.headerFrac;
     const scale = getCanvasScale(canvas);
+    const stageW = canvas.clientWidth || 1280;
+    const stageBodyH = (canvas.clientHeight || 686) * layout.bodyFrac;
+    const snap = lineSnapRef.current;
+
+    if (!stroke.isEraser && snap?.snapped) {
+      const lastSample = samples[samples.length - 1];
+      const nextPt = toNormFromClient(lastSample.clientX, lastSample.clientY, rect, layout);
+      snap.lastPt = nextPt;
+      stroke.points = [snap.startPt, nextPt];
+      redrawAll();
+      return;
+    }
+
+    const trackSnapMove = (nextPt: [number, number], prevPt: [number, number]) => {
+      if (stroke.isEraser || !snap) return;
+      snap.pathLenPx += Math.hypot(
+        (nextPt[0] - prevPt[0]) * stageW,
+        (nextPt[1] - prevPt[1]) * stageBodyH,
+      );
+      snap.lastPt = nextPt;
+      const holdDriftPx = Math.hypot(
+        (nextPt[0] - snap.holdPt[0]) * stageW,
+        (nextPt[1] - snap.holdPt[1]) * stageBodyH,
+      );
+      if (holdDriftPx > LINE_SNAP_STILL_PX) {
+        snap.holdPt = nextPt;
+        scheduleLineSnap(stageW, stageBodyH);
+      }
+    };
 
     if (ctx) {
       ctx.save();
@@ -767,6 +932,7 @@ export function AnnotationCanvas({
         const prev = pts[pts.length - 1];
         if (Math.hypot(nextPt[0] - prev[0], nextPt[1] - prev[1]) >= 0.0005) {
           pts.push(nextPt);
+          trackSnapMove(nextPt, prev);
           ctx.lineTo(nextPt[0] * w, nextPt[1] * bodyH + offsetY);
           added = true;
         }
@@ -781,6 +947,7 @@ export function AnnotationCanvas({
         const prev = pts[pts.length - 1];
         if (Math.hypot(nextPt[0] - prev[0], nextPt[1] - prev[1]) >= 0.0005) {
           pts.push(nextPt);
+          trackSnapMove(nextPt, prev);
         }
       }
     }
@@ -795,6 +962,8 @@ export function AnnotationCanvas({
     }
     const canvas = e.currentTarget;
     const layout = getStageLayout(canvas);
+    clearLineSnapTimer();
+    lineSnapRef.current = null;
     activePointerIdRef.current = null;
     activePointerTypeRef.current = null;
     lastEraserPtRef.current = null;
@@ -837,17 +1006,11 @@ export function AnnotationCanvas({
         const span = Math.hypot(pLast[0] - p0[0], pLast[1] - p0[1]);
 
         let matched: number[] = [];
-        if (selectionShape === 'rect' && span < 0.008) {
+        const isSingleTap =
+          (selectionShape === 'rect' && span < 0.008) ||
+          (selectionShape === 'lasso' && draft.length < 4 && span < 0.012);
+        if (isSingleTap) {
           // Single tap inside select mode: pick top-most stroke under tap
-          const stageW = canvas.clientWidth || 1280;
-          const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
-          for (let i = cur.length - 1; i >= 0; i--) {
-            if (!cur[i].isEraser && doesSegmentHitStroke(p0, p0, cur[i], 14, stageW, stageH)) {
-              matched = [i];
-              break;
-            }
-          }
-        } else if (selectionShape === 'lasso' && draft.length < 4 && span < 0.012) {
           const stageW = canvas.clientWidth || 1280;
           const stageH = (canvas.clientHeight || 686) * layout.bodyFrac;
           for (let i = cur.length - 1; i >= 0; i--) {
@@ -865,6 +1028,11 @@ export function AnnotationCanvas({
           }
         }
         setSelectedIndicesSafe(matched);
+        const matchedSnips =
+          isSingleTap && matched.length > 0
+            ? []
+            : (findSnippetsInSelection?.(selectionShape, draft, isSingleTap) ?? []);
+        setSelectedSnippetsSafe(matchedSnips);
       }
       drawSelectionOverlay();
       return;
@@ -939,7 +1107,15 @@ export function AnnotationCanvas({
           className="absolute z-40 flex items-center gap-1 rounded-full bg-slate-900/95 px-2.5 py-1.5 text-white shadow-xl border border-slate-700/80 whitespace-nowrap"
         >
           <span className="text-[11px] font-semibold text-sky-300 px-1.5">
-            {selectedIndices.length} {lang === 'th' ? 'เส้น' : selectedIndices.length === 1 ? 'stroke' : 'strokes'}
+            {selectedIndices.length > 0 && selectedSnippets.length > 0
+              ? lang === 'th'
+                ? `${selectedIndices.length} เส้น + ${selectedSnippets.length} สูตร`
+                : `${selectedIndices.length} strokes + ${selectedSnippets.length} items`
+              : selectedIndices.length > 0
+                ? `${selectedIndices.length} ${lang === 'th' ? 'เส้น' : selectedIndices.length === 1 ? 'stroke' : 'strokes'}`
+                : lang === 'th'
+                  ? `${selectedSnippets.length} สูตร/ข้อความ`
+                  : `${selectedSnippets.length} ${selectedSnippets.length === 1 ? 'formula' : 'formulas'}`}
           </span>
           <button
             type="button"
@@ -954,24 +1130,29 @@ export function AnnotationCanvas({
                 ? 'คัดลอก'
                 : 'Copy'}
           </button>
-          <button
-            type="button"
-            onClick={handleDuplicateSelected}
-            className="rounded-full bg-slate-700 hover:bg-slate-600 px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-          >
-            {lang === 'th' ? 'ทำซ้ำ' : 'Duplicate'}
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteSelected}
-            className="rounded-full bg-rose-600 hover:bg-rose-500 px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-          >
-            {lang === 'th' ? 'ลบ' : 'Delete'}
-          </button>
+          {selectedIndices.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={handleDuplicateSelected}
+                className="rounded-full bg-slate-700 hover:bg-slate-600 px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                {lang === 'th' ? 'ทำซ้ำ' : 'Duplicate'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="rounded-full bg-rose-600 hover:bg-rose-500 px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                {lang === 'th' ? 'ลบ' : 'Delete'}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => {
               setSelectedIndicesSafe([]);
+              setSelectedSnippetsSafe([]);
               drawSelectionOverlay();
             }}
             aria-label={lang === 'th' ? 'ยกเลิกการเลือก' : 'Clear selection'}

@@ -29,6 +29,8 @@ export function Vec3SliderGroup({
   const formatted = isPoint
     ? `(${fmtNum(value[0])}, ${fmtNum(value[1])}, ${fmtNum(value[2])})`
     : `⟨${fmtNum(value[0])}, ${fmtNum(value[1])}, ${fmtNum(value[2])}⟩`;
+  const effMin = Math.min(min, Math.floor(Math.min(...value)));
+  const effMax = Math.max(max, Math.ceil(Math.max(...value)));
 
   return (
     <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
@@ -43,8 +45,8 @@ export function Vec3SliderGroup({
       <SliderControl
         label={isPoint ? 'x' : isEn ? 'x-component' : 'องค์ประกอบ x'}
         value={value[0]}
-        min={min}
-        max={max}
+        min={effMin}
+        max={effMax}
         step={step}
         accentColor="#ef4444"
         onChange={(x) => onChange([x, value[1], value[2]])}
@@ -52,8 +54,8 @@ export function Vec3SliderGroup({
       <SliderControl
         label={isPoint ? 'y' : isEn ? 'y-component' : 'องค์ประกอบ y'}
         value={value[1]}
-        min={min}
-        max={max}
+        min={effMin}
+        max={effMax}
         step={step}
         accentColor="#10b981"
         onChange={(y) => onChange([value[0], y, value[2]])}
@@ -61,8 +63,8 @@ export function Vec3SliderGroup({
       <SliderControl
         label={isPoint ? 'z' : isEn ? 'z-component' : 'องค์ประกอบ z'}
         value={value[2]}
-        min={min}
-        max={max}
+        min={effMin}
+        max={effMax}
         step={step}
         accentColor="#3b82f6"
         onChange={(z) => onChange([value[0], value[1], z])}

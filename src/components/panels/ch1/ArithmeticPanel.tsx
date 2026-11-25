@@ -105,8 +105,8 @@ export function ArithmeticPanel({ state, lang = 'th', onChange }: ArithmeticPane
           <SliderControl
             label={isEn ? 'Scalar Multiplier k' : 'ค่าสเกลาร์ k (Scalar Multiplier)'}
             value={state.scalarK}
-            min={-2.5}
-            max={2.5}
+            min={Math.min(-2.5, Math.floor(state.scalarK))}
+            max={Math.max(2.5, Math.ceil(state.scalarK))}
             step={0.25}
             accentColor="#f59e0b"
             onChange={(scalarK) => update({ scalarK })}

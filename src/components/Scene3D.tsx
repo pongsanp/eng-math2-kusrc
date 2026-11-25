@@ -42,7 +42,7 @@ import {
   disposeObject3D,
   makeTextSprite,
 } from './sceneHelpers';
-import { renderChapter1Scene } from './sceneCh1';
+import { getCh1SceneExtent, renderChapter1Scene } from './sceneCh1';
 import { renderChapter3Scene } from './sceneCh3';
 
 interface Scene3DProps {
@@ -227,10 +227,16 @@ export function Scene3D({
       gridHelperRef.current = null;
     }
 
+    const ch1Extent =
+      activeChapter === 'ch1'
+        ? getCh1SceneExtent({ ch1Tab, coordsVec, arithmetic, dotProj, crossTriple, lines3d })
+        : BOX_LIMIT;
+    const gridRadius = activeChapter === 'ch1' ? Math.max(5, Math.ceil(ch1Extent)) : 5;
+
     if (settings.showGrid) {
       const grid = new THREE.GridHelper(
-        10,
-        10,
+        gridRadius * 2,
+        gridRadius * 2,
         settings.darkMode ? 0x334155 : 0xcbd5e1,
         settings.darkMode ? 0x1e293b : 0xe2e8f0,
       );
@@ -246,10 +252,32 @@ export function Scene3D({
       disposeObject3D(child);
     }
     const isTranslation = activeChapter === 'ch2' && activeTab === 'translation';
-    const axisSpan = isTranslation ? 5.8 : 5.3;
-    const negSpan = isTranslation ? 4.8 : 4.6;
+    const axisSpan =
+      activeChapter === 'ch1' && ch1Extent > BOX_LIMIT
+        ? ch1Extent + 0.8
+        : isTranslation
+          ? 5.8
+          : 5.3;
+    const negSpan =
+      activeChapter === 'ch1' && ch1Extent > BOX_LIMIT
+        ? ch1Extent + 0.5
+        : isTranslation
+          ? 4.8
+          : 4.6;
     addAxesSet(axesGroup, [0, 0, 0], axisSpan, negSpan, false, settings.darkMode);
-  }, [settings.darkMode, settings.showGrid, settings.autoRotate, activeChapter, activeTab]);
+  }, [
+    settings.darkMode,
+    settings.showGrid,
+    settings.autoRotate,
+    activeChapter,
+    activeTab,
+    ch1Tab,
+    coordsVec,
+    arithmetic,
+    dotProj,
+    crossTriple,
+    lines3d,
+  ]);
 
   // Camera preset commands
   useEffect(() => {

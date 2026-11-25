@@ -396,6 +396,34 @@ export function addParallelogram(
   addPolyline(group, [p1, p2, p3], color, 0.7, true);
 }
 
+export function addTriangle(
+  group: THREE.Group,
+  origin: Vec3,
+  u: Vec3,
+  v: Vec3,
+  color: string,
+  opacity = 0.34,
+) {
+  const p1: Vec3 = [origin[0] + u[0], origin[1] + u[1], origin[2] + u[2]];
+  const p2: Vec3 = [origin[0] + v[0], origin[1] + v[1], origin[2] + v[2]];
+
+  const t0 = mathVecToThree(origin);
+  const t1 = mathVecToThree(p1);
+  const t2 = mathVecToThree(p2);
+
+  const geom = new THREE.BufferGeometry().setFromPoints([t0, t1, t2]);
+  geom.computeVertexNormals();
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  group.add(new THREE.Mesh(geom, mat));
+  addPolyline(group, [p1, p2], color, 0.85, false);
+}
+
 export function addParallelepiped(
   group: THREE.Group,
   u: Vec3,

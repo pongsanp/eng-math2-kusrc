@@ -61,6 +61,7 @@ export interface CrossTripleState {
   w: Vec3Tuple;
   reverseOrder: boolean;
   showAreaOrVolume: boolean;
+  showTriangle?: boolean;
 }
 
 export interface Lines3DState {
@@ -71,6 +72,9 @@ export interface Lines3DState {
   t: number;
   isAnimatingT: boolean;
   showPositionVectors: boolean;
+  showSecondLine?: boolean;
+  p0Second?: Vec3Tuple;
+  dirSecond?: Vec3Tuple;
 }
 
 export type CameraPreset = 'isometric' | 'top' | 'front' | 'side';

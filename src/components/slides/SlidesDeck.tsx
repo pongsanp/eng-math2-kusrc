@@ -39,7 +39,6 @@ import {
 } from 'lucide-react';
 import {
   CH1_VISIBLE_SLIDES,
-  getConceptDashboardTarget,
   getExampleDashboardTarget,
   getLocalizedSlide,
   type Ch1DashboardTarget,
@@ -48,13 +47,16 @@ import {
 } from '../../slides/ch1SlidesData';
 import {
   clearDeckInk,
+  clearDeckSnippets,
   loadCustomBlankPages,
   loadDeckInk,
+  loadDeckSnippets,
   saveCustomBlankPages,
   saveSlideInk,
+  saveSlideSnippets,
 } from '../../slides/inkStorage';
 import { KaTeX } from '../KaTeX';
-import { AnnotationCanvas } from './AnnotationCanvas';
+import { AnnotationCanvas, type SlideSnippetHit } from './AnnotationCanvas';
 import {
   buildOrderedDeckEntries,
   cloneStrokesWithOffset,
@@ -72,7 +74,9 @@ import {
   type PrintScope,
   type RenderedInkExport,
   type SelectionShape,
+  type SlideBBox,
   type SlideLang,
+  type SlideSnippet,
   type ToolbarDock,
 } from '../../slides/inkUtils';
 import { MiniScene3D } from './MiniScene3D';
@@ -201,6 +205,28 @@ function toneClasses(tone?: SlideFormulaBlock['tone']): string {
     default:
       return 'bg-white border-slate-200 text-slate-900';
   }
+}
+
+function isNormPointInPolygon(
+  px: number,
+  py: number,
+  poly: Array<[number, number]>,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0];
+    const yi = poly[i][1];
+    const xj = poly[j][0];
+    const yj = poly[j][1];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi || 1e-9) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function createSnippetId(): string {
+  return `snip_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function getBlankPaperStyleCss(paperStyle: BlankPaperStyle): Record<string, string> {
@@ -333,11 +359,27 @@ function SlidesDeckInner({
   const [toolMode, setToolMode] = useState<AnnotationTool>('pen');
   const [selectionShape, setSelectionShape] = useState<SelectionShape>('lasso');
   const [clipboardStrokes, setClipboardStrokes] = useState<InkStroke[]>([]);
+  const [clipboardSnippets, setClipboardSnippets] = useState<SlideSnippet[]>([]);
   const [selectTrigger, setSelectTrigger] = useState<{ indices: number[]; seq: number } | null>(null);
   const [laserStyle, setLaserStyle] = useState<LaserStyle>('trail');
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [strokesBySlide, setStrokesBySlide] = useState<Record<number, InkStroke[]>>({});
   const strokesRef = useRef<Record<number, InkStroke[]>>({});
+  const [snippetsBySlide, setSnippetsBySlide] = useState<Record<number, SlideSnippet[]>>({});
+  const snippetsRef = useRef<Record<number, SlideSnippet[]>>({});
+  const slideBodyAreaRef = useRef<HTMLDivElement | null>(null);
+  const snippetDragRef = useRef<{
+    slideId: number;
+    id: string;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    origX: number;
+    origY: number;
+    w: number;
+    boxW: number;
+    boxH: number;
+  } | null>(null);
   const undoHistoryRef = useRef<Record<number, InkStroke[][]>>({});
   const [undoCountBySlide, setUndoCountBySlide] = useState<Record<number, number>>({});
   const [customPages, setCustomPages] = useState<CustomBlankPage[]>([]);
@@ -396,6 +438,20 @@ function SlidesDeckInner({
       strokesRef.current = merged;
       setStrokesBySlide(merged);
     });
+    void loadDeckSnippets(storageDeckId).then((loadedSnips) => {
+      if (cancelled) return;
+      const preSnips = snippetsRef.current;
+      const merged: Record<number, SlideSnippet[]> = { ...loadedSnips };
+      for (const [k, preList] of Object.entries(preSnips)) {
+        const sId = Number(k);
+        if (Number.isFinite(sId) && Array.isArray(preList) && preList.length > 0) {
+          merged[sId] = [...(loadedSnips[sId] ?? []), ...preList];
+          void saveSlideSnippets(storageDeckId, sId, merged[sId]);
+        }
+      }
+      snippetsRef.current = merged;
+      setSnippetsBySlide(merged);
+    });
     void loadCustomBlankPages(storageDeckId).then((loadedPages) => {
       if (cancelled) return;
       if (customPagesRef.current.length === 0 && loadedPages.length > 0) {
@@ -436,6 +492,7 @@ function SlidesDeckInner({
   const lecture2StartIdx = orderedEntries.findIndex((e) => e.lecture === 2);
   const lecture1EndPage = lecture2StartIdx > 0 ? lecture2StartIdx : totalEntries;
   const fs = FONT_SCALE_MAP[textScale];
+  const currentSnippets = snippetsBySlide[activeId] ?? [];
 
   useEffect(() => {
     if (!hydratedRef.current && pendingRestoreIdRef.current !== null) return;
@@ -622,17 +679,46 @@ function SlidesDeckInner({
     [storageDeckId, legacyInkKey],
   );
 
+  const updateSlideSnippets = useCallback(
+    (slideId: number, updater: (prevList: SlideSnippet[]) => SlideSnippet[]) => {
+      const prevList = snippetsRef.current[slideId] ?? [];
+      const nextList = updater(prevList);
+      if (nextList === prevList) return;
+      const nextMap = { ...snippetsRef.current, [slideId]: nextList };
+      snippetsRef.current = nextMap;
+      setSnippetsBySlide(nextMap);
+      void saveSlideSnippets(storageDeckId, slideId, nextList);
+    },
+    [storageDeckId],
+  );
+
   const handlePasteClipboard = useCallback(() => {
-    if (clipboardStrokes.length === 0) return;
-    const clones = cloneStrokesWithOffset(clipboardStrokes, 0.015, 0.015, -0.35);
-    if (clones.length === 0) return;
-    const curLen = (strokesRef.current[activeId] ?? []).length;
-    const newIndices = clones.map((_, i) => curLen + i);
-    updateSlideStrokes(activeId, (prev) => [...prev, ...clones]);
-    setDrawEnabled(true);
-    setToolMode('select');
-    setSelectTrigger({ indices: newIndices, seq: Date.now() });
-  }, [activeId, clipboardStrokes, updateSlideStrokes]);
+    if (clipboardStrokes.length === 0 && clipboardSnippets.length === 0) return;
+    if (clipboardStrokes.length > 0) {
+      const clones = cloneStrokesWithOffset(clipboardStrokes, 0.015, 0.015, -0.35);
+      if (clones.length > 0) {
+        const curLen = (strokesRef.current[activeId] ?? []).length;
+        const newIndices = clones.map((_, i) => curLen + i);
+        updateSlideStrokes(activeId, (prev) => [...prev, ...clones]);
+        setDrawEnabled(true);
+        setToolMode('select');
+        setSelectTrigger({ indices: newIndices, seq: Date.now() });
+      }
+    }
+    if (clipboardSnippets.length > 0) {
+      const existingCount = (snippetsRef.current[activeId] ?? []).length;
+      const clonedSnips: SlideSnippet[] = clipboardSnippets.map((sn, idx) => {
+        const bump = ((existingCount + idx) % 4) * 0.015;
+        return {
+          ...sn,
+          id: createSnippetId(),
+          x: Math.max(0.02, Math.min(Math.max(0.08, 0.96 - sn.w), sn.x + 0.02 + bump)),
+          y: Math.max(0.02, Math.min(0.8, sn.y + 0.02 + bump)),
+        };
+      });
+      updateSlideSnippets(activeId, (prev) => [...prev, ...clonedSnips]);
+    }
+  }, [activeId, clipboardSnippets, clipboardStrokes, updateSlideSnippets, updateSlideStrokes]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -643,7 +729,7 @@ function SlidesDeckInner({
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
         if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-        if (clipboardStrokes.length > 0) {
+        if (clipboardStrokes.length > 0 || clipboardSnippets.length > 0) {
           e.preventDefault();
           handlePasteClipboard();
         }
@@ -700,6 +786,7 @@ function SlidesDeckInner({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [
+    clipboardSnippets.length,
     clipboardStrokes.length,
     goNext,
     goPrev,
@@ -731,6 +818,177 @@ function SlidesDeckInner({
     );
   };
 
+  const handleCopySnippets = useCallback((copied: SlideSnippet[]) => {
+    setClipboardSnippets(copied.map((sn) => ({ ...sn })));
+  }, []);
+
+  const findSnippetsInSelection = useCallback(
+    (shape: SelectionShape, draft: Array<[number, number]>, isTap: boolean): SlideSnippetHit[] => {
+      const bodyEl = slideBodyAreaRef.current;
+      if (!bodyEl || draft.length === 0) return [];
+      const bodyRect = bodyEl.getBoundingClientRect();
+      if (bodyRect.width < 10 || bodyRect.height < 10) return [];
+
+      let selMinX = Infinity;
+      let selMinY = Infinity;
+      let selMaxX = -Infinity;
+      let selMaxY = -Infinity;
+      for (const [x, y] of draft) {
+        if (x < selMinX) selMinX = x;
+        if (y < selMinY) selMinY = y;
+        if (x > selMaxX) selMaxX = x;
+        if (y > selMaxY) selMaxY = y;
+      }
+
+      const candidates = Array.from(bodyEl.querySelectorAll<HTMLElement>('[data-snip-type]'));
+      interface RawHit {
+        el: HTMLElement;
+        type: string;
+        area: number;
+        normBox: SlideBBox;
+        snippet: SlideSnippet;
+      }
+      const rawHits: RawHit[] = [];
+
+      const buildSnippet = (el: HTMLElement, box: SlideBBox): SlideSnippet | null => {
+        const type = el.dataset.snipType;
+        const w = Math.max(0.2, Math.min(0.84, box.maxX - box.minX));
+        if (type === 'pasted') {
+          const id = el.dataset.snipId;
+          const found = (snippetsRef.current[activeId] ?? []).find((s) => s.id === id);
+          return found ? { ...found } : null;
+        }
+        if (type === 'formula') {
+          const cIdx = Number(el.dataset.snipCard);
+          const fIdx = Number(el.dataset.snipFormula);
+          const f = activeLoc?.cards?.[cIdx]?.formulas?.[fIdx];
+          if (!f) return null;
+          return {
+            id: createSnippetId(),
+            x: box.minX,
+            y: box.minY,
+            w,
+            kind: 'formula',
+            label: f.label,
+            latex: f.latex,
+            tone: f.tone,
+          };
+        }
+        if (type === 'ex-formula') {
+          const exIdx = Number(el.dataset.snipIdx);
+          const ex = activeLoc?.examples?.[exIdx];
+          if (!ex?.displayLatex) return null;
+          return {
+            id: createSnippetId(),
+            x: box.minX,
+            y: box.minY,
+            w,
+            kind: 'formula',
+            label: ex.displayLabel,
+            latex: ex.displayLatex,
+            tone: 'sky',
+          };
+        }
+        if (type === 'prompt') {
+          const exIdx = Number(el.dataset.snipIdx);
+          const ex = activeLoc?.examples?.[exIdx];
+          if (!ex) return null;
+          return {
+            id: createSnippetId(),
+            x: box.minX,
+            y: box.minY,
+            w,
+            kind: 'prompt',
+            label: ex.displayLabel,
+            text: ex.displayPrompt,
+          };
+        }
+        if (type === 'card') {
+          const cIdx = Number(el.dataset.snipIdx);
+          const card = activeLoc?.cards?.[cIdx];
+          if (!card) return null;
+          const bulletsText = card.bullets?.map((b) => `• ${b}`).join('\n');
+          const latexCombined =
+            card.formulas && card.formulas.length > 0
+              ? card.formulas.map((f) => f.latex).join(' \\\\[4pt] ')
+              : undefined;
+          return {
+            id: createSnippetId(),
+            x: box.minX,
+            y: box.minY,
+            w,
+            kind: 'card',
+            label: card.heading,
+            text: bulletsText,
+            latex: latexCombined,
+          };
+        }
+        return null;
+      };
+
+      for (const el of candidates) {
+        const type = el.dataset.snipType ?? '';
+        const r = el.getBoundingClientRect();
+        if (r.width < 8 || r.height < 8) continue;
+        const bx1 = Math.max(0, Math.min(1, (r.left - bodyRect.left) / bodyRect.width));
+        const bx2 = Math.max(0, Math.min(1, (r.right - bodyRect.left) / bodyRect.width));
+        const by1 = Math.max(0, Math.min(1, (r.top - bodyRect.top) / bodyRect.height));
+        const by2 = Math.max(0, Math.min(1, (r.bottom - bodyRect.top) / bodyRect.height));
+        const bw = Math.max(1e-5, bx2 - bx1);
+        const bh = Math.max(1e-5, by2 - by1);
+        const area = bw * bh;
+
+        if (isTap) {
+          const [tx, ty] = draft[0];
+          if (tx < bx1 || tx > bx2 || ty < by1 || ty > by2) continue;
+        } else {
+          const ix1 = Math.max(selMinX, bx1);
+          const iy1 = Math.max(selMinY, by1);
+          const ix2 = Math.min(selMaxX, bx2);
+          const iy2 = Math.min(selMaxY, by2);
+          if (ix2 <= ix1 || iy2 <= iy1) continue;
+          const interArea = (ix2 - ix1) * (iy2 - iy1);
+          const fracOfEl = interArea / area;
+          const minReq = type === 'card' ? 0.5 : 0.16;
+          if (shape === 'rect') {
+            if (fracOfEl < minReq) continue;
+          } else {
+            let insideCount = 0;
+            for (let gx = 0; gx < 3; gx++) {
+              for (let gy = 0; gy < 3; gy++) {
+                const sx = bx1 + bw * (0.15 + gx * 0.35);
+                const sy = by1 + bh * (0.15 + gy * 0.35);
+                if (isNormPointInPolygon(sx, sy, draft)) insideCount++;
+              }
+            }
+            const minPts = type === 'card' ? 5 : 1;
+            if (insideCount < minPts && fracOfEl < 0.35) continue;
+          }
+        }
+
+        const normBox: SlideBBox = { minX: bx1, minY: by1, maxX: bx2, maxY: by2 };
+        const snippet = buildSnippet(el, normBox);
+        if (snippet) {
+          rawHits.push({ el, type, area, normBox, snippet });
+        }
+      }
+
+      if (rawHits.length === 0) return [];
+      if (isTap) {
+        // Pick the tightest matching box under the tap
+        rawHits.sort((a, b) => a.area - b.area);
+        return [{ snippet: rawHits[0].snippet, normBox: rawHits[0].normBox }];
+      }
+
+      // Avoid duplicating both an entire card AND its own nested formula boxes
+      const matchedCards = rawHits.filter((h) => h.type === 'card').map((h) => h.el);
+      return rawHits
+        .filter((h) => h.type === 'card' || !matchedCards.some((c) => c.contains(h.el)))
+        .map((h) => ({ snippet: h.snippet, normBox: h.normBox }));
+    },
+    [activeId, activeLoc],
+  );
+
   const handleUndoStroke = () => {
     const stack = undoHistoryRef.current[activeId] ?? [];
     if (stack.length > 0) {
@@ -757,7 +1015,10 @@ function SlidesDeckInner({
       setUndoCountBySlide({});
       strokesRef.current = {};
       setStrokesBySlide({});
+      snippetsRef.current = {};
+      setSnippetsBySlide({});
       void clearDeckInk(storageDeckId, legacyInkKey);
+      void clearDeckSnippets(storageDeckId);
     }
   };
 
@@ -828,6 +1089,13 @@ function SlidesDeckInner({
     }
     delete undoHistoryRef.current[pageId];
     void saveSlideInk(storageDeckId, pageId, [], legacyInkKey);
+    if (snippetsRef.current[pageId]) {
+      const nextSnipMap = { ...snippetsRef.current };
+      delete nextSnipMap[pageId];
+      snippetsRef.current = nextSnipMap;
+      setSnippetsBySlide(nextSnipMap);
+    }
+    void saveSlideSnippets(storageDeckId, pageId, []);
     setSelectTrigger(null);
     setSlideIdx((prev) => Math.max(0, Math.min(prev, orderedEntries.length - 2)));
   };
@@ -2425,25 +2693,24 @@ function SlidesDeckInner({
                         </button>
                       </div>
                     )}
-                    {clipboardStrokes.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handlePasteClipboard}
-                        title={
-                          isEn
-                            ? `Paste ${clipboardStrokes.length} copied strokes onto current page (Ctrl+V)`
-                            : `วางลายมือที่คัดลอกไว้ (${clipboardStrokes.length} เส้น) ลงในหน้านี้ (Ctrl+V)`
-                        }
-                        className="inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border border-emerald-500 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
-                      >
-                        <ClipboardPaste className="w-3 h-3" />
-                        <span>
-                          {isEn
-                            ? `Paste (${clipboardStrokes.length})`
-                            : `วาง (${clipboardStrokes.length})`}
-                        </span>
-                      </button>
-                    )}
+                    {(clipboardStrokes.length > 0 || clipboardSnippets.length > 0) && (() => {
+                      const pasteCount = clipboardStrokes.length + clipboardSnippets.length;
+                      return (
+                        <button
+                          type="button"
+                          onClick={handlePasteClipboard}
+                          title={
+                            isEn
+                              ? `Paste ${pasteCount} copied item(s) onto current page (Ctrl+V)`
+                              : `วางสิ่งที่คัดลอกไว้ (${pasteCount} รายการ) ลงในหน้านี้ (Ctrl+V)`
+                          }
+                          className="inline-flex items-center justify-center gap-1 px-[7px] py-[3px] rounded-[7px] font-semibold border border-emerald-500 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
+                        >
+                          <ClipboardPaste className="w-3 h-3" />
+                          <span>{isEn ? `Paste (${pasteCount})` : `วาง (${pasteCount})`}</span>
+                        </button>
+                      );
+                    })()}
                   </div>
 
                   {/* Palm Rejection Toggle */}
@@ -2561,8 +2828,14 @@ function SlidesDeckInner({
                   transformOrigin: 'top left',
                 }}
               >
-              {/* Combined Header + Body Overlay Stage (allows continuous writing on both Header and Body) */}
-              <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+              {/* Scrollable Slide Body (Header + Body + AnnotationCanvas together so finger scroll, wheel & swipe always work!) */}
+              <div
+                ref={slideBodyRef}
+                className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col ${
+                  drawEnabled ? 'select-none' : 'select-text'
+                }`}
+              >
+                <div className="relative flex-1 flex flex-col">
               {/* Slide Header (Built-in vs Blank Note Page) */}
               {activeEntry.kind === 'blank' ? (
                 <div
@@ -2659,15 +2932,9 @@ function SlidesDeckInner({
                 </div>
               )}
 
-              {/* Slide Body (always scrollable via finger/wheel even in Write mode; ink canvas moves with content) */}
-              <div
-                ref={slideBodyRef}
-                className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col ${
-                  drawEnabled ? 'select-none' : 'select-text'
-                }`}
-              >
                 <div
-                  className={`relative flex-1 flex flex-col ${
+                  ref={slideBodyAreaRef}
+                  className={`relative flex-1 min-h-0 flex flex-col ${
                     activeBuiltinSlide?.kind === 'example' || activeEntry.kind === 'blank'
                       ? 'p-2.5'
                       : 'p-3.5'
@@ -2698,7 +2965,11 @@ function SlidesDeckInner({
                         }`}
                       >
                         <div className={activeLoc.examples && activeLoc.examples.length > 1 ? 'space-y-1' : 'space-y-1.5'}>
-                          <div className={`${fs.exPrompt} font-bold text-slate-900 leading-snug`}>
+                          <div
+                            data-snip-type="prompt"
+                            data-snip-idx={String(exIdx)}
+                            className={`${fs.exPrompt} font-bold text-slate-900 leading-snug rounded-lg`}
+                          >
                             {ex.displayLabel && (
                               <span
                                 className={`mr-2 px-2.5 py-0.5 rounded-md text-[22px] font-bold ${
@@ -2715,6 +2986,8 @@ function SlidesDeckInner({
                           </div>
                           {ex.displayLatex && (
                             <div
+                              data-snip-type="ex-formula"
+                              data-snip-idx={String(exIdx)}
                               className={`px-3 py-1 rounded-xl bg-white border border-slate-200 inline-block max-w-full overflow-x-auto overflow-y-hidden leading-normal text-sky-900 ${fs.exLatex}`}
                             >
                               <KaTeX math={ex.displayLatex} />
@@ -2787,6 +3060,8 @@ function SlidesDeckInner({
                       {activeLoc?.cards?.map((card, cIdx) => (
                         <div
                           key={cIdx}
+                          data-snip-type="card"
+                          data-snip-idx={String(cIdx)}
                           className={`rounded-2xl border border-slate-200 bg-slate-50/70 ${
                             activeBuiltinSlide?.kind === 'summary'
                               ? 'p-3 space-y-1 flex flex-col justify-between'
@@ -2816,6 +3091,9 @@ function SlidesDeckInner({
                               {card.formulas.map((f, fIdx) => (
                                 <div
                                   key={fIdx}
+                                  data-snip-type="formula"
+                                  data-snip-card={String(cIdx)}
+                                  data-snip-formula={String(fIdx)}
                                   className={`rounded-xl border px-3 py-1.5 ${toneClasses(f.tone)}`}
                                 >
                                   {f.label && (
@@ -2856,42 +3134,185 @@ function SlidesDeckInner({
                           hintTh={activeLoc?.embedHint}
                           aboveInk={drawEnabled && toolMode !== 'laser'}
                           lang={lang}
-                          onOpenDashboard={(() => {
-                            if (!onOpenDashboardTarget) return undefined;
-                            const target = getConceptDashboardTarget(activeBuiltinSlide.embed3D);
-                            return target ? () => onOpenDashboardTarget(target) : undefined;
-                          })()}
+                          onOpenDashboardTarget={onOpenDashboardTarget}
                         />
                       </div>
                     )}
                   </div>
                 )}
 
-                </div>
-              </div>
+                  {/* Pasted Formula / Card Snippets (z-[15] under ink canvas so notes write cleanly on top) */}
+                  {currentSnippets.map((snip) => (
+                    <div
+                      key={snip.id}
+                      data-snip-type="pasted"
+                      data-snip-id={snip.id}
+                      style={{
+                        left: `${snip.x * 100}%`,
+                        top: `${snip.y * 100}%`,
+                        width: `${snip.w * 100}%`,
+                      }}
+                      className={`absolute z-[15] pointer-events-none rounded-xl border px-3 py-2 shadow-md ${
+                        snip.kind === 'formula'
+                          ? toneClasses(snip.tone)
+                          : snip.kind === 'prompt'
+                            ? 'bg-sky-50/95 border-sky-300 text-slate-900'
+                            : 'bg-slate-50/95 border-slate-300 text-slate-900'
+                      }`}
+                    >
+                      {snip.label && (
+                        <div className="text-[13px] font-bold opacity-75 mb-0.5 pr-16">
+                          {snip.label}
+                        </div>
+                      )}
+                      {snip.latex && (
+                        <div className="text-[20px] leading-normal overflow-x-auto overflow-y-hidden py-0.5">
+                          <KaTeX math={snip.latex} />
+                        </div>
+                      )}
+                      {snip.text && (
+                        <div className="text-[15px] font-semibold leading-snug whitespace-pre-line mt-0.5">
+                          <RichMathText text={snip.text} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
 
-              {/* Transparent Ink / Apple Pencil Overlay (covers Header + Body seamlessly) */}
-              <AnnotationCanvas
-                key={storageDeckId}
-                strokes={currentStrokes}
-                drawEnabled={drawEnabled}
-                pencilOnly={pencilOnly}
-                penColor={penColor}
-                penWidth={penWidth}
-                eraserSize={eraserSize}
-                eraserMode={eraserMode}
-                toolMode={toolMode}
-                selectionShape={selectionShape}
-                laserStyle={laserStyle}
-                zoom={zoom}
-                headerHeight={slideHeaderHeight}
-                lang={lang}
-                selectTrigger={selectTrigger}
-                onAddStroke={handleAddStroke}
-                onEraseStrokes={handleEraseStrokes}
-                onReplaceStrokes={handleReplaceStrokes}
-                onCopyStrokes={handleCopyStrokes}
-              />
+                  {/* Floating Drag / Resize / Delete Handles for Pasted Snippets (z-[24] above ink canvas) */}
+                  {toolMode !== 'laser' &&
+                    currentSnippets.map((snip) => (
+                      <div
+                        key={`ctrl_${snip.id}`}
+                        data-floating-toolbar="true"
+                        style={{
+                          left: `${Math.min(97, (snip.x + snip.w) * 100)}%`,
+                          top: `${Math.max(0.5, snip.y * 100 - 0.5)}%`,
+                          transform: 'translate(-100%, -45%)',
+                        }}
+                        className="absolute z-[24] pointer-events-auto inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/95 border border-emerald-300 shadow-sm text-[11px] font-bold text-slate-700"
+                      >
+                        <button
+                          type="button"
+                          title={isEn ? 'Drag to move pasted card' : 'ลากเพื่อย้ายกล่องสูตร'}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            const bodyEl = slideBodyAreaRef.current;
+                            if (!bodyEl) return;
+                            const bodyRect = bodyEl.getBoundingClientRect();
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                            snippetDragRef.current = {
+                              slideId: activeId,
+                              id: snip.id,
+                              pointerId: e.pointerId,
+                              startClientX: e.clientX,
+                              startClientY: e.clientY,
+                              origX: snip.x,
+                              origY: snip.y,
+                              w: snip.w,
+                              boxW: bodyRect.width || STAGE_WIDTH,
+                              boxH: bodyRect.height || STAGE_HEIGHT,
+                            };
+                          }}
+                          onPointerMove={(e) => {
+                            const d = snippetDragRef.current;
+                            if (!d || d.id !== snip.id || d.pointerId !== e.pointerId) return;
+                            e.stopPropagation();
+                            const dxNorm = (e.clientX - d.startClientX) / d.boxW;
+                            const dyNorm = (e.clientY - d.startClientY) / d.boxH;
+                            const nextX = Math.max(
+                              0.01,
+                              Math.min(Math.max(0.06, 0.98 - d.w), d.origX + dxNorm),
+                            );
+                            const nextY = Math.max(0.01, Math.min(0.88, d.origY + dyNorm));
+                            updateSlideSnippets(d.slideId, (prev) =>
+                              prev.map((item) =>
+                                item.id === d.id ? { ...item, x: nextX, y: nextY } : item,
+                              ),
+                            );
+                          }}
+                          onPointerUp={(e) => {
+                            const d = snippetDragRef.current;
+                            if (d && d.id === snip.id && d.pointerId === e.pointerId) {
+                              snippetDragRef.current = null;
+                              try {
+                                e.currentTarget.releasePointerCapture(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                            }
+                          }}
+                          onPointerCancel={() => {
+                            snippetDragRef.current = null;
+                          }}
+                          className="px-1.5 py-0.5 rounded-full hover:bg-emerald-50 text-emerald-700 cursor-grab active:cursor-grabbing touch-none"
+                        >
+                          {isEn ? '⠿ Move' : '⠿ ย้าย'}
+                        </button>
+                        <button
+                          type="button"
+                          title={isEn ? 'Cycle card width' : 'สลับความกว้างกล่อง'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const nextW = snip.w < 0.38 ? 0.48 : snip.w < 0.6 ? 0.72 : 0.3;
+                            updateSlideSnippets(activeId, (prev) =>
+                              prev.map((item) =>
+                                item.id === snip.id
+                                  ? {
+                                      ...item,
+                                      w: nextW,
+                                      x: Math.min(item.x, Math.max(0.02, 0.98 - nextW)),
+                                    }
+                                  : item,
+                              ),
+                            );
+                          }}
+                          className="px-1 py-0.5 rounded hover:bg-slate-100 text-slate-600"
+                        >
+                          {snip.w < 0.38 ? 'S' : snip.w < 0.6 ? 'M' : 'L'}
+                        </button>
+                        <button
+                          type="button"
+                          title={isEn ? 'Remove pasted card' : 'ลบกล่องนี้'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateSlideSnippets(activeId, (prev) =>
+                              prev.filter((item) => item.id !== snip.id),
+                            );
+                          }}
+                          className="p-0.5 rounded-full hover:bg-rose-100 text-rose-600"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                </div>
+
+                {/* Transparent Ink / Apple Pencil Overlay (inside slideBodyRef so touch scroll, wheel & swipe work!) */}
+                <AnnotationCanvas
+                  key={storageDeckId}
+                  strokes={currentStrokes}
+                  drawEnabled={drawEnabled}
+                  pencilOnly={pencilOnly}
+                  penColor={penColor}
+                  penWidth={penWidth}
+                  eraserSize={eraserSize}
+                  eraserMode={eraserMode}
+                  toolMode={toolMode}
+                  selectionShape={selectionShape}
+                  laserStyle={laserStyle}
+                  zoom={zoom}
+                  headerHeight={slideHeaderHeight}
+                  lang={lang}
+                  selectTrigger={selectTrigger}
+                  onAddStroke={handleAddStroke}
+                  onEraseStrokes={handleEraseStrokes}
+                  onReplaceStrokes={handleReplaceStrokes}
+                  onCopyStrokes={handleCopyStrokes}
+                  findSnippetsInSelection={findSnippetsInSelection}
+                  onCopySnippets={handleCopySnippets}
+                />
+                </div>
               </div>
 
               {/* Inside-Slide Faculty Credit Footer (matches PDF export on every page) */}
@@ -2956,6 +3377,7 @@ function SlidesDeckInner({
       <SlidePrintView
         includeInk={printIncludeInk}
         inkImagesBySlide={inkImagesBySlide}
+        snippetsBySlide={snippetsBySlide}
         printScope={exportScope}
         customPages={customPages}
         lang={lang}

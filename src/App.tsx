@@ -77,6 +77,7 @@ import {
   vecAngleDeg,
   vecCross,
   vecDot,
+  vecNorm,
   vecProj,
   vecScale,
   vecSub,
@@ -177,7 +178,7 @@ export default function App() {
   const [coordsVec, setCoordsVec] = useState<CoordsVecState>({
     subMode: 'single_point',
     plotStep: 3,
-    showPlaneProjections: true,
+    showPlaneProjections: false,
     showPlaneXY: false,
     showPlaneXZ: false,
     showPlaneYZ: false,
@@ -213,6 +214,7 @@ export default function App() {
     w: [0.5, 0.5, 2.5],
     reverseOrder: false,
     showAreaOrVolume: true,
+    showTriangle: false,
   });
 
   const [lines3d, setLines3d] = useState<Lines3DState>({
@@ -223,6 +225,9 @@ export default function App() {
     t: 1,
     isAnimatingT: false,
     showPositionVectors: true,
+    showSecondLine: false,
+    p0Second: [1, -3, 2],
+    dirSecond: [4, 7, 1],
   });
 
   // Chapter 3 state
@@ -506,10 +511,17 @@ export default function App() {
           const lhs = crossTriple.reverseOrder
             ? '\\mathbf{v}\\times\\mathbf{u}'
             : '\\mathbf{u}\\times\\mathbf{v}';
+          const mag = vecNorm(cross);
           return {
-            titleTh: 'ผลคูณไขว้ & พื้นที่สี่เหลี่ยมด้านขนาน',
-            titleEn: 'Cross Product & Area',
-            latex: `${lhs} = ${fmtVecAngle(cross)}`,
+            titleTh: crossTriple.showTriangle
+              ? 'ผลคูณไขว้ & พื้นที่สามเหลี่ยม'
+              : 'ผลคูณไขว้ & พื้นที่สี่เหลี่ยมด้านขนาน',
+            titleEn: crossTriple.showTriangle
+              ? 'Cross Product & Triangle Area'
+              : 'Cross Product & Area',
+            latex: crossTriple.showTriangle
+              ? `${lhs} = ${fmtVecAngle(cross)},\\quad \\text{Area} = \\tfrac{1}{2}\\|\\mathbf{u}\\times\\mathbf{v}\\| = ${fmtNum(mag / 2)}`
+              : `${lhs} = ${fmtVecAngle(cross)}`,
           };
         }
         const triple = scalarTriple(crossTriple.u, crossTriple.v, crossTriple.w);
@@ -524,6 +536,20 @@ export default function App() {
           ? vecSub(lines3d.p2, lines3d.p0)
           : lines3d.dir;
       const eqs = buildLineEquationsLatex(lines3d.p0, effDir, slideLang);
+      if (lines3d.showSecondLine && lines3d.dirSecond) {
+        const rawDeg = vecAngleDeg(effDir, lines3d.dirSecond);
+        const acute = rawDeg !== null ? Math.min(rawDeg, Math.abs(180 - rawDeg)) : null;
+        return {
+          titleTh: 'เส้นตรง 2 เส้นใน 3 มิติ (เปรียบเทียบ L₁, L₂)',
+          titleEn: 'Two 3D Lines (L₁ & L₂)',
+          latex:
+            acute !== null
+              ? acute < 0.05
+                ? `${eqs.vector},\\quad L_1 \\parallel L_2`
+                : `${eqs.vector},\\quad \\theta = ${fmtNum(acute, 1)}^\\circ`
+              : eqs.vector,
+        };
+      }
       return {
         titleTh: 'สมการเส้นตรงในปริภูมิ 3 มิติ',
         titleEn: 'Line in 3D Space',
@@ -667,6 +693,7 @@ export default function App() {
 
   const [dashboardLaser, setDashboardLaser] = useState(false);
   const [dashboardLaserStyle, setDashboardLaserStyle] = useState<LaserStyle>('trail');
+  const [dashboardLaserPencilOnly, setDashboardLaserPencilOnly] = useState(true);
   const [bannerCollapsed, setBannerCollapsed] = useState(false);
   const [bannerPos, setBannerPos] = useState<{ x: number; y: number } | null>(null);
   const sceneMainRef = useRef<HTMLElement | null>(null);
@@ -729,15 +756,15 @@ export default function App() {
     setActiveChapter('ch1');
     setCh1Tab(target.tab);
     if (target.tab === 'coords_vec' && target.patch) {
-      setCoordsVec((prev) => ({ ...prev, ...target.patch }));
+      setCoordsVec((prev) => ({ ...prev, showPlaneProjections: false, ...target.patch }));
     } else if (target.tab === 'arithmetic' && target.patch) {
       setArithmetic((prev) => ({ ...prev, ...target.patch }));
     } else if (target.tab === 'dot_proj' && target.patch) {
       setDotProj((prev) => ({ ...prev, ...target.patch }));
     } else if (target.tab === 'cross_triple' && target.patch) {
-      setCrossTriple((prev) => ({ ...prev, ...target.patch }));
+      setCrossTriple((prev) => ({ ...prev, showTriangle: false, ...target.patch }));
     } else if (target.tab === 'lines3d' && target.patch) {
-      setLines3d((prev) => ({ ...prev, ...target.patch }));
+      setLines3d((prev) => ({ ...prev, showSecondLine: false, isAnimatingT: false, ...target.patch }));
     }
     setDashboardLaser(false);
     setAppView('dashboard');
@@ -1173,6 +1200,7 @@ export default function App() {
               if (bannerCollapsed) {
                 return (
                   <div
+                    data-banner-drag="true"
                     onPointerDown={handleBannerDragStart}
                     onPointerMove={handleBannerDragMove}
                     onPointerUp={handleBannerDragEnd}
@@ -1212,6 +1240,7 @@ export default function App() {
               return (
                 <div className="pointer-events-auto inline-block max-w-full rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-lg px-2.5 py-1.5 sm:px-3.5 sm:py-2">
                   <div
+                    data-banner-drag="true"
                     onPointerDown={handleBannerDragStart}
                     onPointerMove={handleBannerDragMove}
                     onPointerUp={handleBannerDragEnd}
@@ -1401,7 +1430,10 @@ export default function App() {
           <DashboardLaserOverlay
             active={dashboardLaser}
             laserStyle={dashboardLaserStyle}
+            pencilOnly={dashboardLaserPencilOnly}
+            containerRef={sceneMainRef}
             onChangeStyle={setDashboardLaserStyle}
+            onTogglePencilOnly={() => setDashboardLaserPencilOnly((v) => !v)}
             onClose={() => setDashboardLaser(false)}
             lang={slideLang}
           />

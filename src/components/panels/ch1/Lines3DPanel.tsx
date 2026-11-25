@@ -5,9 +5,13 @@ import {
   buildLineEquationsLatex,
   fmtPoint,
   vecAdd,
+  vecAngleDeg,
+  vecCross,
+  vecNorm,
   vecScale,
   vecSub,
 } from '../../../math/vectors';
+import { fmtNum } from '../../../math/latex';
 import { KaTeX } from '../../KaTeX';
 import { SliderControl } from '../../SliderControl';
 import { Vec3SliderGroup } from '../../Vec3SliderGroup';
@@ -27,6 +31,18 @@ export function Lines3DPanel({ state, lang = 'th', onChange }: Lines3DPanelProps
   const pt = vecAdd(state.p0, vecScale(effDir, state.t));
   const eqs = buildLineEquationsLatex(state.p0, effDir, lang);
 
+  const p0Second = state.p0Second ?? [1, -3, 2];
+  const dirSecond = state.dirSecond ?? [4, 7, 1];
+  const eqs2 = state.showSecondLine ? buildLineEquationsLatex(p0Second, dirSecond, lang) : null;
+  const rawAngleDeg = state.showSecondLine ? vecAngleDeg(effDir, dirSecond) : null;
+  const lineAngleDeg =
+    rawAngleDeg !== null ? Math.min(rawAngleDeg, Math.abs(180 - rawAngleDeg)) : null;
+  const areParallel =
+    state.showSecondLine &&
+    vecNorm(effDir) > 1e-4 &&
+    vecNorm(dirSecond) > 1e-4 &&
+    vecNorm(vecCross(effDir, dirSecond)) < 1e-4;
+
   return (
     <div className="space-y-4">
       <div>
@@ -38,7 +54,7 @@ export function Lines3DPanel({ state, lang = 'th', onChange }: Lines3DPanelProps
             <button
               key={p.id}
               type="button"
-              onClick={() => update({ ...p.value, isAnimatingT: false })}
+              onClick={() => update({ showSecondLine: false, ...p.value, isAnimatingT: false })}
               className="text-left px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/60 hover:border-sky-400 hover:bg-sky-50/60 dark:hover:bg-sky-950/40 transition text-xs"
             >
               <div className="font-semibold text-slate-700 dark:text-slate-200 truncate">
@@ -201,6 +217,73 @@ export function Lines3DPanel({ state, lang = 'th', onChange }: Lines3DPanelProps
           className="w-4 h-4 accent-indigo-600"
         />
       </label>
+
+      {/* Compare with 2nd Line L2 (Parallel / Angle Between Lines) */}
+      <label className="flex items-center justify-between px-3 py-2 rounded-xl border border-fuchsia-200 dark:border-fuchsia-900/60 bg-fuchsia-50/40 dark:bg-fuchsia-950/20 text-xs cursor-pointer">
+        <span className="font-semibold text-fuchsia-900 dark:text-fuchsia-200">
+          {isEn ? 'Compare with 2nd Line L₂' : 'เปรียบเทียบเส้นตรงที่ 2 (L₂)'}
+        </span>
+        <input
+          type="checkbox"
+          checked={Boolean(state.showSecondLine)}
+          onChange={(e) =>
+            update({
+              showSecondLine: e.target.checked,
+              p0Second: state.p0Second ?? p0Second,
+              dirSecond: state.dirSecond ?? dirSecond,
+            })
+          }
+          className="w-4 h-4 accent-fuchsia-600"
+        />
+      </label>
+
+      {state.showSecondLine && (
+        <div className="space-y-3 p-3 rounded-2xl border border-fuchsia-200 dark:border-fuchsia-900/60 bg-fuchsia-50/40 dark:bg-fuchsia-950/20">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-fuchsia-900 dark:text-fuchsia-200">
+              {isEn ? 'Second Line L₂ (Magenta)' : 'เส้นตรงที่ 2: L₂ (สีชมพูม่วง)'}
+            </span>
+            {lineAngleDeg !== null && (
+              <span className="px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-fuchsia-200 dark:border-fuchsia-800 font-mono font-bold text-fuchsia-700 dark:text-fuchsia-300">
+                {areParallel
+                  ? isEn
+                    ? 'L₁ ∥ L₂ (0°)'
+                    : 'L₁ ∥ L₂ (ขนาน)'
+                  : `θ = ${fmtNum(lineAngleDeg, 1)}°`}
+              </span>
+            )}
+          </div>
+
+          <Vec3SliderGroup
+            title={isEn ? 'Point on L₂' : 'จุดผ่านของ L₂'}
+            value={p0Second}
+            isPoint
+            min={-4}
+            max={4}
+            lang={lang}
+            badgeColor="text-fuchsia-700 dark:text-fuchsia-300"
+            onChange={(nextP0) => update({ p0Second: nextP0 })}
+          />
+          <Vec3SliderGroup
+            title={isEn ? 'Direction v₂' : 'เวกเตอร์ทิศทาง v₂'}
+            value={dirSecond}
+            min={-4}
+            max={4}
+            lang={lang}
+            badgeColor="text-fuchsia-700 dark:text-fuchsia-300"
+            onChange={(nextDir) => update({ dirSecond: nextDir })}
+          />
+
+          {eqs2 && (
+            <div className="p-2 rounded-xl bg-white dark:bg-slate-900/80 text-xs overflow-x-auto overflow-y-hidden leading-normal">
+              <div className="text-[10px] font-semibold text-fuchsia-700 dark:text-fuchsia-300 mb-0.5">
+                {isEn ? 'L₂ Vector Form' : 'สมการเวกเตอร์ของ L₂'}
+              </div>
+              <KaTeX math={eqs2.vector} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
