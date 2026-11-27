@@ -1,0 +1,185 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model (Cloud Firestore Standard `(default)` database)
+    // ===============================================================
+    //
+    // Collection: users/{userId}/decks
+    // Document ID: deckId (e.g., "ch1", "ch1_en"; matches ^[a-zA-Z0-9_-]{1,64}$)
+    // Fields:
+    //   - customPages: list<CustomBlankPage> (required, 0..200 items)
+    //       Each item: { id (< 0), afterSlideId, order (>= 0), lecture (1 | 2),
+    //                    paperStyle ("grid" | "lined" | "blank"), createdAt (>= 0) }
+    //   - updatedAt: number (required, >= 0) - client epoch ms timestamp
+    //   - deviceId: string (required, 1..128 chars) - sync origin device ID
+    //
+    // Subcollection: users/{userId}/decks/{deckId}/slides
+    // Document ID: slideId (integer string, e.g., "1", "-1"; matches ^(0|-?[1-9][0-9]{0,11})$)
+    // Fields:
+    //   - slideId: number (required, integer matching slideId document ID; immutable on update)
+    //   - strokes: list<CloudInkStroke> (required, 0..5000 items)
+    //       Each item: { color (string), width (number 0..200), pts (list),
+    //                    isEraser? (bool), isHighlighter? (bool), sharp? (bool),
+    //                    pressures? (list) }
+    //   - snippets: list<SlideSnippet> (required, 0..200 items)
+    //       Each item: { id (string), x (number), y (number), w (number),
+    //                    kind ("formula" | "card" | "prompt"),
+    //                    label? (string), latex? (string), text? (string),
+    //                    tone? ("sky" | "emerald" | "amber" | "rose" | "slate") }
+    //   - updatedAt: number (required, >= 0) - client epoch ms timestamp
+    //   - deviceId: string (required, 1..128 chars) - sync origin device ID
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if authenticated user owns the user-scoped resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Verify UID hasn't been tampered with on create (if a uid field is used)
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == request.auth.uid;
+    }
+
+    // Ensure uid field is not modified on update (if a uid field is used)
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == resource.data.uid;
+    }
+
+    // Validate required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate that the document contains only the allowed fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Validate string length on a document field
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    // Validate that a list is a list and enforces size limits
+    function isValidList(listVal, maxSize) {
+      return listVal is list && listVal.size() <= maxSize;
+    }
+
+    // Validate deck document ID format (e.g., "ch1", "ch1_en")
+    function isValidDeckId(deckId) {
+      return deckId is string && deckId.matches('^[a-zA-Z0-9_-]{1,64}$');
+    }
+
+    // Validate slide document ID format (positive or negative integer string, e.g., "1", "-1")
+    function isValidSlideIdDocKey(slideId) {
+      return slideId is string && slideId.matches('^(0|-?[1-9][0-9]{0,11})$');
+    }
+
+    // ===============================================================
+    // Element & Domain Validators
+    // ===============================================================
+
+    function isValidCustomPage(page) {
+      return page is map &&
+        page.keys().hasAll(['id', 'afterSlideId', 'order', 'lecture', 'paperStyle', 'createdAt']) &&
+        page.keys().hasOnly(['id', 'afterSlideId', 'order', 'lecture', 'paperStyle', 'createdAt']) &&
+        page.id is number && page.id < 0 &&
+        page.afterSlideId is number &&
+        page.order is number && page.order >= 0 &&
+        page.lecture in [1, 2] &&
+        page.paperStyle in ['grid', 'lined', 'blank'] &&
+        page.createdAt is number && page.createdAt >= 0;
+    }
+
+    function isValidStroke(st) {
+      return st is map &&
+        st.keys().hasAll(['color', 'width', 'pts']) &&
+        st.keys().hasOnly(['color', 'width', 'pts', 'isEraser', 'isHighlighter', 'sharp', 'pressures']) &&
+        st.color is string && st.color.size() >= 1 && st.color.size() <= 64 &&
+        st.width is number && st.width >= 0 && st.width <= 200 &&
+        st.pts is list && st.pts.size() <= 20000 &&
+        (!('isEraser' in st) || st.isEraser is bool) &&
+        (!('isHighlighter' in st) || st.isHighlighter is bool) &&
+        (!('sharp' in st) || st.sharp is bool) &&
+        (!('pressures' in st) || (st.pressures is list && st.pressures.size() <= 10000));
+    }
+
+    function isValidSnippet(sn) {
+      return sn is map &&
+        sn.keys().hasAll(['id', 'x', 'y', 'w', 'kind']) &&
+        sn.keys().hasOnly(['id', 'x', 'y', 'w', 'kind', 'label', 'latex', 'text', 'tone']) &&
+        sn.id is string && sn.id.size() >= 1 && sn.id.size() <= 128 &&
+        sn.x is number && sn.y is number && sn.w is number &&
+        sn.kind in ['formula', 'card', 'prompt'] &&
+        (!('label' in sn) || (sn.label is string && sn.label.size() <= 500)) &&
+        (!('latex' in sn) || (sn.latex is string && sn.latex.size() <= 5000)) &&
+        (!('text' in sn) || (sn.text is string && sn.text.size() <= 10000)) &&
+        (!('tone' in sn) || sn.tone in ['sky', 'emerald', 'amber', 'rose', 'slate']);
+    }
+
+    function isValidDeckMeta(data, deckId) {
+      return isValidDeckId(deckId) &&
+        hasOnlyAllowedFields(['customPages', 'updatedAt', 'deviceId']) &&
+        hasRequiredFields(['customPages', 'updatedAt', 'deviceId']) &&
+        isValidList(data.customPages, 200) &&
+        (data.customPages.size() == 0 || isValidCustomPage(data.customPages[0])) &&
+        data.updatedAt is number && data.updatedAt >= 0 &&
+        validStringLength('deviceId', 1, 128);
+    }
+
+    function isValidSlideDoc(data, slideId) {
+      return isValidSlideIdDocKey(slideId) &&
+        hasOnlyAllowedFields(['slideId', 'strokes', 'snippets', 'updatedAt', 'deviceId']) &&
+        hasRequiredFields(['slideId', 'strokes', 'snippets', 'updatedAt', 'deviceId']) &&
+        data.slideId is int &&
+        string(data.slideId) == slideId &&
+        isValidList(data.strokes, 5000) &&
+        (data.strokes.size() == 0 || isValidStroke(data.strokes[0])) &&
+        isValidList(data.snippets, 200) &&
+        (data.snippets.size() == 0 || isValidSnippet(data.snippets[0])) &&
+        data.updatedAt is number && data.updatedAt >= 0 &&
+        validStringLength('deviceId', 1, 128);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId}/decks/{deckId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidDeckMeta(request.resource.data, deckId);
+      allow update: if isOwner(userId) && isValidDeckMeta(request.resource.data, deckId);
+      allow delete: if isOwner(userId);
+
+      match /slides/{slideId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSlideDoc(request.resource.data, slideId);
+        allow update: if isOwner(userId) &&
+          isValidSlideDoc(request.resource.data, slideId) &&
+          request.resource.data.slideId == resource.data.slideId;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

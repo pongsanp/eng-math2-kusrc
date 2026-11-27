@@ -92,6 +92,8 @@ import { KaTeX } from './components/KaTeX';
 import { Scene3D } from './components/Scene3D';
 import { Trace2DCard } from './components/Trace2DCard';
 import { Contour2DCard } from './components/Contour2DCard';
+import { VersionBadge } from './components/VersionBadge';
+import { CloudSyncButton } from './components/CloudSyncButton';
 import { PlanesPanel } from './components/panels/PlanesPanel';
 import { CylindersPanel } from './components/panels/CylindersPanel';
 import { QuadricsPanel } from './components/panels/QuadricsPanel';
@@ -828,6 +830,7 @@ export default function App() {
               <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-600 text-white tracking-wide shrink-0">
                 01417168
               </span>
+              <VersionBadge isEn={isEn} />
               <h1 className="text-sm sm:text-base font-bold text-slate-800 dark:text-slate-100 truncate">
                 {isEn
                   ? 'Engineering Mathematics II (3D Explorer)'
@@ -1005,6 +1008,8 @@ export default function App() {
             <Presentation className="w-3.5 h-3.5" />
             <span>{isEn ? 'Ch. 1 Slides' : 'สไลด์บท 1'}</span>
           </button>
+
+          <CloudSyncButton isEn={isEn} />
 
           <button
             type="button"

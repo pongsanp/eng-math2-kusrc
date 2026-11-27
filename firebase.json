@@ -1,0 +1,21 @@
+{
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "01417168 Eng Math II",
+        "supportEmail": "pongsan.p@gmail.com",
+        "authorizedRedirectUris": [
+          "https://eng-math2-kusrc.firebaseapp.com/__/auth/handler",
+          "https://pongsanp.github.io/eng-math2-kusrc/",
+          "http://localhost:4173",
+          "http://localhost:5173"
+        ]
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json",
+    "location": "asia-southeast1"
+  }
+}

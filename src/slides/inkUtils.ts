@@ -299,6 +299,7 @@ export interface InkStroke {
   width: number;
   isEraser?: boolean;
   isHighlighter?: boolean;
+  sharp?: boolean; // Crisp straight segments / closed rings without quadratic corner rounding
   pressures?: number[]; // normalized width multiplier per point (Fountain pen)
   points: Array<[number, number]>; // normalized: x in [0..1], y in [-headerRatio..1] (0..1 = body)
 }
@@ -374,6 +375,24 @@ export function drawStrokeOnContext(
       prevMidX = nextX;
       prevMidY = nextY;
     }
+    ctx.restore();
+    return;
+  }
+
+  if (st.sharp && pts.length >= 2) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] * w, toY(pts[0][1]));
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i][0] * w, toY(pts[i][1]));
+    }
+    const last = pts[pts.length - 1];
+    if (
+      pts.length >= 4 &&
+      Math.hypot(pts[0][0] - last[0], pts[0][1] - last[1]) < 1e-4
+    ) {
+      ctx.closePath();
+    }
+    ctx.stroke();
     ctx.restore();
     return;
   }
@@ -582,6 +601,236 @@ export interface SnapShapeResult {
   points: Array<[number, number]>;
 }
 
+function resampleClosedPolylinePx(
+  closedPts: Array<[number, number]>,
+  count: number,
+): Array<[number, number]> {
+  if (closedPts.length < 2 || count < 3) return closedPts;
+  const cumLen: number[] = [0];
+  for (let i = 1; i < closedPts.length; i++) {
+    cumLen.push(
+      cumLen[i - 1] +
+        Math.hypot(closedPts[i][0] - closedPts[i - 1][0], closedPts[i][1] - closedPts[i - 1][1]),
+    );
+  }
+  const totalLen = cumLen[cumLen.length - 1];
+  if (totalLen <= 1e-3) return closedPts;
+
+  const out: Array<[number, number]> = [];
+  let segIdx = 0;
+  for (let k = 0; k < count; k++) {
+    const target = (k / count) * totalLen;
+    while (segIdx < cumLen.length - 2 && cumLen[segIdx + 1] < target) {
+      segIdx++;
+    }
+    const segStart = cumLen[segIdx];
+    const segLen = Math.max(1e-6, cumLen[segIdx + 1] - segStart);
+    const t = Math.max(0, Math.min(1, (target - segStart) / segLen));
+    const p0 = closedPts[segIdx];
+    const p1 = closedPts[segIdx + 1];
+    out.push([p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t]);
+  }
+  return out;
+}
+
+function polygonSignedAreaPx(ringPts: Array<[number, number]>): number {
+  let sum = 0;
+  const n = ringPts.length;
+  for (let i = 0; i < n; i++) {
+    const a = ringPts[i];
+    const b = ringPts[(i + 1) % n];
+    sum += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(sum) * 0.5;
+}
+
+function meanDistToClosedPolygon(
+  samples: Array<[number, number]>,
+  verts: Array<[number, number]>,
+): number {
+  if (samples.length === 0 || verts.length < 3) return Infinity;
+  let sum = 0;
+  for (const [px, py] of samples) {
+    let bestSq = Infinity;
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      const dSq = distPtToSegSq(px, py, a[0], a[1], b[0], b[1]);
+      if (dSq < bestSq) bestSq = dSq;
+    }
+    sum += Math.sqrt(bestSq);
+  }
+  return sum / samples.length;
+}
+
+function extractOptimalTriAndQuad(
+  pts: Array<[number, number]>,
+  cx: number,
+  cy: number,
+  diag: number,
+): {
+  triVerts: Array<[number, number]> | null;
+  triErr: number;
+  quadVerts: Array<[number, number]> | null;
+  quadErr: number;
+} {
+  if (pts.length < 6) {
+    return { triVerts: null, triErr: Infinity, quadVerts: null, quadErr: Infinity };
+  }
+  // Anchor start at the vertex farthest from centroid (guaranteed true corner on polygons)
+  let farIdx = 0;
+  let maxDistSq = -1;
+  for (let i = 0; i < pts.length; i++) {
+    const dx = pts[i][0] - cx;
+    const dy = pts[i][1] - cy;
+    const dSq = dx * dx + dy * dy;
+    if (dSq > maxDistSq) {
+      maxDistSq = dSq;
+      farIdx = i;
+    }
+  }
+  const rotated = [...pts.slice(farIdx), ...pts.slice(0, farIdx), pts[farIdx]];
+  const candidates = rdpSimplifyPx(rotated, Math.max(4, diag * 0.032));
+  const ring = candidates.slice(0, -1);
+  if (ring.length < 3) {
+    return { triVerts: null, triErr: Infinity, quadVerts: null, quadErr: Infinity };
+  }
+
+  // Merge any duplicate near-start/end point
+  if (
+    ring.length > 3 &&
+    Math.hypot(ring[ring.length - 1][0] - ring[0][0], ring[ring.length - 1][1] - ring[0][1]) <
+      Math.max(14, diag * 0.08)
+  ) {
+    ring.pop();
+  }
+
+  let quadVerts: Array<[number, number]> | null =
+    ring.length === 4 ? ring.map((p) => [p[0], p[1]]) : null;
+
+  // Iteratively prune the least significant corner (Visvalingam-Whyatt area) down to 4 then 3
+  const working = ring.map((p) => [p[0], p[1]] as [number, number]);
+  while (working.length > 3) {
+    let minArea = Infinity;
+    let dropIdx = 0;
+    const n = working.length;
+    for (let i = 0; i < n; i++) {
+      const prev = working[(i - 1 + n) % n];
+      const curr = working[i];
+      const next = working[(i + 1) % n];
+      const area = Math.abs(
+        (curr[0] - prev[0]) * (next[1] - prev[1]) - (curr[1] - prev[1]) * (next[0] - prev[0]),
+      );
+      if (area < minArea) {
+        minArea = area;
+        dropIdx = i;
+      }
+    }
+    working.splice(dropIdx, 1);
+    if (working.length === 4 && !quadVerts) {
+      quadVerts = working.map((p) => [p[0], p[1]]);
+    }
+  }
+
+  const triVerts = working.length === 3 ? working : null;
+  const quadErr = quadVerts ? meanDistToClosedPolygon(pts, quadVerts) / Math.max(12, diag) : Infinity;
+  const triErr = triVerts ? meanDistToClosedPolygon(pts, triVerts) / Math.max(12, diag) : Infinity;
+  return { triVerts, triErr, quadVerts, quadErr };
+}
+
+function minInteriorAngleDeg(verts: Array<[number, number]>): number {
+  let minDeg = 180;
+  const n = verts.length;
+  for (let i = 0; i < n; i++) {
+    const prev = verts[(i - 1 + n) % n];
+    const curr = verts[i];
+    const next = verts[(i + 1) % n];
+    const ax = prev[0] - curr[0];
+    const ay = prev[1] - curr[1];
+    const bx = next[0] - curr[0];
+    const by = next[1] - curr[1];
+    const len = Math.hypot(ax, ay) * Math.hypot(bx, by);
+    if (len <= 1e-4) return 0;
+    const cosVal = Math.max(-1, Math.min(1, (ax * bx + ay * by) / len));
+    const deg = (Math.acos(cosVal) * 180) / Math.PI;
+    if (deg < minDeg) minDeg = deg;
+  }
+  return minDeg;
+}
+
+function buildOrthogonalRectIfClose(
+  quadVerts: Array<[number, number]>,
+  pts: Array<[number, number]>,
+  diag: number,
+): Array<[number, number]> {
+  let totalDev = 0;
+  for (let i = 0; i < 4; i++) {
+    const prev = quadVerts[(i + 3) % 4];
+    const curr = quadVerts[i];
+    const next = quadVerts[(i + 1) % 4];
+    const ax = prev[0] - curr[0];
+    const ay = prev[1] - curr[1];
+    const bx = next[0] - curr[0];
+    const by = next[1] - curr[1];
+    const len = Math.hypot(ax, ay) * Math.hypot(bx, by);
+    if (len <= 1e-4) return quadVerts;
+    const deg = (Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / len))) * 180) / Math.PI;
+    totalDev += Math.abs(deg - 90);
+  }
+  const avgDev = totalDev / 4;
+  if (avgDev > 18) {
+    // Preserve non-rectangular quad (e.g. trapezoid / parallelogram / rotated diamond)
+    return quadVerts;
+  }
+
+  // Dominant edge orientation weighted by edge length
+  let sumCos4 = 0;
+  let sumSin4 = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quadVerts[i];
+    const b = quadVerts[(i + 1) % 4];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    const ang = Math.atan2(dy, dx);
+    sumCos4 += len * Math.cos(4 * ang);
+    sumSin4 += len * Math.sin(4 * ang);
+  }
+  let rectAngle = 0.25 * Math.atan2(sumSin4, sumCos4);
+  // Snap near-axis rectangles cleanly to horizontal/vertical (within +-11 deg)
+  const degMod90 = (((rectAngle * 180) / Math.PI) % 90 + 90) % 90;
+  if (degMod90 < 11 || degMod90 > 79) {
+    rectAngle = 0;
+  }
+
+  const ux = Math.cos(rectAngle);
+  const uy = Math.sin(rectAngle);
+  const vx = -uy;
+  const vy = ux;
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const [px, py] of pts) {
+    const u = px * ux + py * uy;
+    const v = px * vx + py * vy;
+    if (u < minU) minU = u;
+    if (u > maxU) maxU = u;
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+  if (maxU - minU < Math.max(12, diag * 0.12) || maxV - minV < Math.max(12, diag * 0.12)) {
+    return quadVerts;
+  }
+  const corner = (u: number, v: number): [number, number] => [u * ux + v * vx, u * uy + v * vy];
+  return [
+    corner(minU, minV),
+    corner(maxU, minV),
+    corner(maxU, maxV),
+    corner(minU, maxV),
+  ];
+}
+
 /**
  * Recognizes geometric primitives (line, arrow, circle, ellipse, triangle, rectangle)
  * from a single normalized stroke when held still at the end.
@@ -600,7 +849,63 @@ export function recognizeHoldSnapShape(
     Math.max(minNormY, Math.min(1, py / stageBodyH)),
   ];
 
-  const pxPts = points.map(([nx, ny]) => [nx * stageW, ny * stageBodyH] as [number, number]);
+  const rawPx = points.map(([nx, ny]) => [nx * stageW, ny * stageBodyH] as [number, number]);
+  let rawMinX = Infinity;
+  let rawMinY = Infinity;
+  let rawMaxX = -Infinity;
+  let rawMaxY = -Infinity;
+  let rawPathLen = 0;
+  for (let i = 0; i < rawPx.length; i++) {
+    const [x, y] = rawPx[i];
+    if (x < rawMinX) rawMinX = x;
+    if (y < rawMinY) rawMinY = y;
+    if (x > rawMaxX) rawMaxX = x;
+    if (y > rawMaxY) rawMaxY = y;
+    if (i > 0) rawPathLen += Math.hypot(x - rawPx[i - 1][0], y - rawPx[i - 1][1]);
+  }
+  if (rawPathLen < 34) return null;
+
+  const rawStart = rawPx[0];
+  const rawEnd = rawPx[rawPx.length - 1];
+  const rawDirectSpan = Math.hypot(rawEnd[0] - rawStart[0], rawEnd[1] - rawStart[1]);
+
+  if (mode === 'line') {
+    if (rawDirectSpan < 24) return null;
+    return { kind: 'line', points: [points[0], points[points.length - 1]] };
+  }
+
+  // Trim slight overshoot past start if user drew ~370-420 degrees around a loop
+  const rawDiag = Math.hypot(rawMaxX - rawMinX, rawMaxY - rawMinY);
+  let pxPts = rawPx;
+  if (rawPx.length >= 16 && rawDiag >= 34) {
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    const scanStart = Math.floor(rawPx.length * 0.65);
+    for (let i = scanStart; i < rawPx.length; i++) {
+      const d = Math.hypot(rawPx[i][0] - rawStart[0], rawPx[i][1] - rawStart[1]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    if (
+      bestIdx >= scanStart &&
+      bestIdx < rawPx.length - 2 &&
+      bestDist < Math.max(24, rawDiag * 0.16)
+    ) {
+      let trimmedLen = 0;
+      for (let i = 1; i <= bestIdx; i++) {
+        trimmedLen += Math.hypot(
+          rawPx[i][0] - rawPx[i - 1][0],
+          rawPx[i][1] - rawPx[i - 1][1],
+        );
+      }
+      if (trimmedLen >= Math.max(68, rawDiag * 1.85)) {
+        pxPts = rawPx.slice(0, bestIdx + 1);
+      }
+    }
+  }
+
   let pathLen = 0;
   let minX = Infinity;
   let minY = Infinity;
@@ -616,87 +921,162 @@ export function recognizeHoldSnapShape(
       pathLen += Math.hypot(x - pxPts[i - 1][0], y - pxPts[i - 1][1]);
     }
   }
-  if (pathLen < 34) return null;
 
   const startPx = pxPts[0];
   const endPx = pxPts[pxPts.length - 1];
   const directSpan = Math.hypot(endPx[0] - startPx[0], endPx[1] - startPx[1]);
-
-  if (mode === 'line') {
-    if (directSpan < 24) return null;
-    return { kind: 'line', points: [points[0], points[points.length - 1]] };
-  }
-
-  const bw = maxX - minX;
-  const bh = maxY - minY;
-  const diag = Math.hypot(bw, bh);
+  const diag = Math.hypot(maxX - minX, maxY - minY);
 
   // 1. Closed shape detection (Circle / Ellipse / Triangle / Rectangle)
-  if (diag >= 36 && directSpan <= Math.max(44, diag * 0.28) && pathLen >= 80) {
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const rx = Math.max(8, bw / 2);
-    const ry = Math.max(8, bh / 2);
+  if (
+    diag >= 34 &&
+    pathLen >= Math.max(68, diag * 1.85) &&
+    directSpan <= Math.max(54, diag * 0.42)
+  ) {
+    const closedInput: Array<[number, number]> = [...pxPts, pxPts[0]];
+    const samples = resampleClosedPolylinePx(closedInput, 96);
 
-    // Ellipse radial fit error
-    let radErrSum = 0;
-    for (const [px, py] of pxPts) {
-      const rNorm = Math.hypot((px - cx) / rx, (py - cy) / ry);
-      radErrSum += Math.abs(rNorm - 1);
+    let cx = 0;
+    let cy = 0;
+    for (const [x, y] of samples) {
+      cx += x;
+      cy += y;
     }
-    const meanRadErr = radErrSum / pxPts.length;
+    cx /= samples.length;
+    cy /= samples.length;
 
-    // Axis-aligned rectangle edge fit error
-    let rectErrSum = 0;
-    for (const [px, py] of pxPts) {
-      const dx = Math.min(Math.abs(px - minX), Math.abs(px - maxX));
-      const dy = Math.min(Math.abs(py - minY), Math.abs(py - maxY));
-      rectErrSum += Math.min(dx, dy);
+    const polyArea = polygonSignedAreaPx(samples);
+    let closedPerim = pathLen + directSpan;
+    if (closedPerim <= 1e-3) closedPerim = 1;
+    const isoperimetricQ = (4 * Math.PI * polyArea) / (closedPerim * closedPerim);
+
+    // 2x2 PCA covariance for true orientation (supports tilted ellipses & rectangles)
+    let cxx = 0;
+    let cyy = 0;
+    let cxy = 0;
+    for (const [px, py] of samples) {
+      const dx = px - cx;
+      const dy = py - cy;
+      cxx += dx * dx;
+      cyy += dy * dy;
+      cxy += dx * dy;
     }
-    const meanRectErr = rectErrSum / (pxPts.length * Math.max(12, diag));
+    cxx /= samples.length;
+    cyy /= samples.length;
+    cxy /= samples.length;
 
-    const simplified = rdpSimplifyPx(pxPts, Math.max(10, diag * 0.1));
-    const verts = simplified.slice(0, -1);
+    let theta = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+    const trace = cxx + cyy;
+    const detTerm = Math.sqrt(Math.max(0, (cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy));
+    const lambda1 = Math.max(16, (trace + detTerm) * 0.5);
+    const lambda2 = Math.max(16, (trace - detTerm) * 0.5);
+
+    const aCov = Math.sqrt(2 * lambda1);
+    const bCov = Math.sqrt(2 * lambda2);
+
+    const ux = Math.cos(theta);
+    const uy = Math.sin(theta);
+    const vx = -uy;
+    const vy = ux;
+    const uCoords: number[] = [];
+    const vCoords: number[] = [];
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const [px, py] of samples) {
+      const dx = px - cx;
+      const dy = py - cy;
+      const u = dx * ux + dy * uy;
+      const v = dx * vx + dy * vy;
+      uCoords.push(u);
+      vCoords.push(v);
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+    const obbW = Math.max(8, maxU - minU);
+    const obbH = Math.max(8, maxV - minV);
+    const fillRatio = polyArea / (obbW * obbH);
+
+    // Measure ellipse radial error against blended covariance + OBB semi-axes (accurate for skinny ellipses too)
+    const aFit = 0.5 * aCov + 0.5 * (obbW * 0.5);
+    const bFit = 0.5 * bCov + 0.5 * (obbH * 0.5);
+    const midU = (minU + maxU) * 0.5;
+    const midV = (minV + maxV) * 0.5;
+    const cOffU = 0.5 * midU;
+    const cOffV = 0.5 * midV;
+    let radSqErrSum = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const rNorm = Math.hypot((uCoords[i] - cOffU) / aFit, (vCoords[i] - cOffV) / bFit);
+      const diff = rNorm - 1;
+      radSqErrSum += diff * diff;
+    }
+    const rmsRadErr = Math.sqrt(radSqErrSum / samples.length);
+
+    // Optimal corner extraction for Triangle & Rectangle
+    const { triVerts, triErr, quadVerts, quadErr } = extractOptimalTriAndQuad(
+      samples,
+      cx,
+      cy,
+      diag,
+    );
+
+    // 1a. Triangle check (only when contour truly has 3 straight edges & low fillRatio)
     if (
-      verts.length >= 2 &&
-      Math.hypot(verts[verts.length - 1][0] - verts[0][0], verts[verts.length - 1][1] - verts[0][1]) <
-        Math.max(22, diag * 0.16)
+      triVerts &&
+      triErr < 0.056 &&
+      triErr < rmsRadErr * 0.78 &&
+      fillRatio < 0.75 &&
+      polyArea > diag * diag * 0.08 &&
+      minInteriorAngleDeg(triVerts) > 15
     ) {
-      verts.pop();
-    }
-
-    if (verts.length === 3 && meanRadErr > 0.14) {
-      const tri = [...verts, verts[0]].map(([x, y]) => toNorm(x, y));
+      const tri = [...triVerts, triVerts[0]].map(([x, y]) => toNorm(x, y));
       return { kind: 'triangle', points: tri };
     }
 
-    if (meanRectErr < 0.055 && (verts.length === 4 || verts.length === 5)) {
-      const rectPx: Array<[number, number]> = [
-        [minX, minY],
-        [maxX, minY],
-        [maxX, maxY],
-        [minX, maxY],
-        [minX, minY],
-      ];
-      return { kind: 'rect', points: rectPx.map(([x, y]) => toNorm(x, y)) };
+    // 1b. Rectangle / Quad check (beats circle/ellipse when corners & straight edges dominate over smooth ellipse fit)
+    if (
+      quadVerts &&
+      quadErr < 0.055 &&
+      quadErr < rmsRadErr * 0.8 &&
+      (fillRatio >= 0.84 || (quadErr < rmsRadErr * 0.6 && fillRatio < 0.68)) &&
+      minInteriorAngleDeg(quadVerts) > 25
+    ) {
+      const snappedQuad = buildOrthogonalRectIfClose(quadVerts, samples, diag);
+      const quad = [...snappedQuad, snappedQuad[0]].map(([x, y]) => toNorm(x, y));
+      return { kind: 'rect', points: quad };
     }
 
-    if (meanRadErr < 0.19) {
-      const isCircle = Math.min(rx, ry) / Math.max(rx, ry) >= 0.78;
-      const erx = isCircle ? (rx + ry) / 2 : rx;
-      const ery = isCircle ? (rx + ry) / 2 : ry;
-      const steps = 48;
+    // 1c. Circle / Ellipse check (immune to teardrop start/end jitter via PCA + resampling)
+    if (rmsRadErr < 0.19 && isoperimetricQ > 0.52) {
+      const aspect = Math.min(aFit, bFit) / Math.max(aFit, bFit);
+      const isCircle = aspect >= 0.82;
+
+      const fitCx = cx + cOffU * ux + cOffV * vx;
+      const fitCy = cy + cOffU * uy + cOffV * vy;
+
+      // Snap nearly-horizontal / vertical ellipse axis cleanly to 0 / 90 deg
+      const degMod90 = (((theta * 180) / Math.PI) % 90 + 90) % 90;
+      if (!isCircle && (degMod90 < 12 || degMod90 > 78)) {
+        const nearestRight = Math.round(theta / (Math.PI / 2)) * (Math.PI / 2);
+        theta = nearestRight;
+      }
+
+      const erx = isCircle ? (aFit + bFit) * 0.5 : aFit;
+      const ery = isCircle ? (aFit + bFit) * 0.5 : bFit;
+      const cosT = isCircle ? 1 : Math.cos(theta);
+      const sinT = isCircle ? 0 : Math.sin(theta);
+      const steps = 72;
       const ring: Array<[number, number]> = [];
       for (let i = 0; i <= steps; i++) {
-        const theta = (i / steps) * Math.PI * 2;
-        ring.push(toNorm(cx + Math.cos(theta) * erx, cy + Math.sin(theta) * ery));
+        const phi = (i / steps) * Math.PI * 2;
+        const lx = Math.cos(phi) * erx;
+        const ly = Math.sin(phi) * ery;
+        ring.push(toNorm(fitCx + lx * cosT - ly * sinT, fitCy + lx * sinT + ly * cosT));
       }
       return { kind: isCircle ? 'circle' : 'ellipse', points: ring };
-    }
-
-    if (verts.length === 4) {
-      const quad = [...verts, verts[0]].map(([x, y]) => toNorm(x, y));
-      return { kind: 'rect', points: quad };
     }
   }
 

@@ -96,6 +96,11 @@ import {
 import { MiniScene3D } from './MiniScene3D';
 import { RichMathText } from './RichMathText';
 import { SlidePrintView } from './SlidePrintView';
+import { VersionBadge } from '../VersionBadge';
+import { CloudSyncButton } from '../CloudSyncButton';
+import { CloudSyncConflictModal } from '../CloudSyncConflictModal';
+import { useDeckCloudSync } from '../../firebase/useDeckCloudSync';
+import type { DeckDataSnapshot } from '../../firebase/syncService';
 
 interface SlidesDeckProps {
   onBackToDashboard: () => void;
@@ -456,6 +461,7 @@ function SlidesDeckInner({
   const [redoCountBySlide, setRedoCountBySlide] = useState<Record<number, number>>({});
   const [customPages, setCustomPages] = useState<CustomBlankPage[]>([]);
   const customPagesRef = useRef<CustomBlankPage[]>([]);
+  const [hydratedDeckId, setHydratedDeckId] = useState<string | null>(null);
 
   // PDF Export state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -496,36 +502,37 @@ function SlidesDeckInner({
 
   useEffect(() => {
     let cancelled = false;
-    void loadDeckInk(storageDeckId, legacyInkKey).then((loaded) => {
+    void Promise.all([
+      loadDeckInk(storageDeckId, legacyInkKey),
+      loadDeckSnippets(storageDeckId),
+      loadCustomBlankPages(storageDeckId),
+    ]).then(([loaded, loadedSnips, loadedPages]) => {
       if (cancelled) return;
+
       const preHydration = strokesRef.current;
-      const merged: Record<number, InkStroke[]> = { ...loaded };
+      const mergedStrokes: Record<number, InkStroke[]> = { ...loaded };
       for (const [k, preList] of Object.entries(preHydration)) {
         const sId = Number(k);
         if (Number.isFinite(sId) && Array.isArray(preList) && preList.length > 0) {
-          merged[sId] = [...(loaded[sId] ?? []), ...preList];
-          void saveSlideInk(storageDeckId, sId, merged[sId], legacyInkKey);
+          mergedStrokes[sId] = [...(loaded[sId] ?? []), ...preList];
+          void saveSlideInk(storageDeckId, sId, mergedStrokes[sId], legacyInkKey);
         }
       }
-      strokesRef.current = merged;
-      setStrokesBySlide(merged);
-    });
-    void loadDeckSnippets(storageDeckId).then((loadedSnips) => {
-      if (cancelled) return;
+      strokesRef.current = mergedStrokes;
+      setStrokesBySlide(mergedStrokes);
+
       const preSnips = snippetsRef.current;
-      const merged: Record<number, SlideSnippet[]> = { ...loadedSnips };
+      const mergedSnips: Record<number, SlideSnippet[]> = { ...loadedSnips };
       for (const [k, preList] of Object.entries(preSnips)) {
         const sId = Number(k);
         if (Number.isFinite(sId) && Array.isArray(preList) && preList.length > 0) {
-          merged[sId] = [...(loadedSnips[sId] ?? []), ...preList];
-          void saveSlideSnippets(storageDeckId, sId, merged[sId]);
+          mergedSnips[sId] = [...(loadedSnips[sId] ?? []), ...preList];
+          void saveSlideSnippets(storageDeckId, sId, mergedSnips[sId]);
         }
       }
-      snippetsRef.current = merged;
-      setSnippetsBySlide(merged);
-    });
-    void loadCustomBlankPages(storageDeckId).then((loadedPages) => {
-      if (cancelled) return;
+      snippetsRef.current = mergedSnips;
+      setSnippetsBySlide(mergedSnips);
+
       if (customPagesRef.current.length === 0 && loadedPages.length > 0) {
         customPagesRef.current = loadedPages;
         setCustomPages(loadedPages);
@@ -542,11 +549,82 @@ function SlidesDeckInner({
           setSlideIdx(restoredIdx);
         }
       }
+      setHydratedDeckId(storageDeckId);
     });
     return () => {
       cancelled = true;
     };
   }, [storageDeckId, legacyInkKey]);
+
+  const handleApplyCloudSnapshot = useCallback((snapshot: DeckDataSnapshot) => {
+    undoHistoryRef.current = {};
+    redoHistoryRef.current = {};
+    setUndoCountBySlide({});
+    setRedoCountBySlide({});
+    strokesRef.current = snapshot.strokesBySlide;
+    setStrokesBySlide(snapshot.strokesBySlide);
+    snippetsRef.current = snapshot.snippetsBySlide;
+    setSnippetsBySlide(snapshot.snippetsBySlide);
+    customPagesRef.current = snapshot.customPages;
+    setCustomPages(snapshot.customPages);
+  }, []);
+
+  const handleApplyRemoteMeta = useCallback((pages: CustomBlankPage[]) => {
+    customPagesRef.current = pages;
+    setCustomPages(pages);
+  }, []);
+
+  const handleApplyRemoteSlide = useCallback(
+    (slideId: number, strokes: InkStroke[], snippets: SlideSnippet[]) => {
+      const nextStrokes = { ...strokesRef.current };
+      if (strokes.length > 0) {
+        nextStrokes[slideId] = strokes;
+      } else {
+        delete nextStrokes[slideId];
+      }
+      strokesRef.current = nextStrokes;
+      setStrokesBySlide(nextStrokes);
+
+      const nextSnips = { ...snippetsRef.current };
+      if (snippets.length > 0) {
+        nextSnips[slideId] = snippets;
+      } else {
+        delete nextSnips[slideId];
+      }
+      snippetsRef.current = nextSnips;
+      setSnippetsBySlide(nextSnips);
+    },
+    [],
+  );
+
+  const handleApplyRemoteSlideRemove = useCallback((slideId: number) => {
+    if (strokesRef.current[slideId]) {
+      const nextStrokes = { ...strokesRef.current };
+      delete nextStrokes[slideId];
+      strokesRef.current = nextStrokes;
+      setStrokesBySlide(nextStrokes);
+    }
+    if (snippetsRef.current[slideId]) {
+      const nextSnips = { ...snippetsRef.current };
+      delete nextSnips[slideId];
+      snippetsRef.current = nextSnips;
+      setSnippetsBySlide(nextSnips);
+    }
+  }, []);
+
+  const cloudSync = useDeckCloudSync({
+    deckId: storageDeckId,
+    legacyInkKey,
+    localHydrated: hydratedDeckId === storageDeckId,
+    isEn,
+    strokesRef,
+    snippetsRef,
+    customPagesRef,
+    onApplySnapshot: handleApplyCloudSnapshot,
+    onApplyRemoteMeta: handleApplyRemoteMeta,
+    onApplyRemoteSlide: handleApplyRemoteSlide,
+    onApplyRemoteSlideRemove: handleApplyRemoteSlideRemove,
+  });
 
   const orderedEntries = useMemo(
     () => buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, customPages),
@@ -757,8 +835,9 @@ function SlidesDeckInner({
       strokesRef.current = nextMap;
       setStrokesBySlide(nextMap);
       void saveSlideInk(storageDeckId, slideId, nextList, legacyInkKey);
+      cloudSync.notifySlideDirty(slideId);
     },
-    [storageDeckId, legacyInkKey],
+    [storageDeckId, legacyInkKey, cloudSync],
   );
 
   const updateSlideSnippets = useCallback(
@@ -770,8 +849,9 @@ function SlidesDeckInner({
       snippetsRef.current = nextMap;
       setSnippetsBySlide(nextMap);
       void saveSlideSnippets(storageDeckId, slideId, nextList);
+      cloudSync.notifySlideDirty(slideId);
     },
-    [storageDeckId],
+    [storageDeckId, cloudSync],
   );
 
   const handlePasteClipboard = useCallback(() => {
@@ -1182,13 +1262,14 @@ function SlidesDeckInner({
       customPagesRef.current = normalized;
       setCustomPages(normalized);
       void saveCustomBlankPages(storageDeckId, normalized);
+      cloudSync.notifyMetaDirty();
       if (activeId === pageId) {
         const nextOrdered = buildOrderedDeckEntries(CH1_VISIBLE_SLIDES, normalized);
         const newIdx = nextOrdered.findIndex((e) => e.id === pageId);
         if (newIdx >= 0) setSlideIdx(newIdx);
       }
     },
-    [activeId, storageDeckId],
+    [activeId, storageDeckId, cloudSync],
   );
 
   const handleMoveBlankAfterAnchor = useCallback(
@@ -1210,8 +1291,9 @@ function SlidesDeckInner({
       customPagesRef.current = normalized;
       setCustomPages(normalized);
       void saveCustomBlankPages(storageDeckId, normalized);
+      cloudSync.notifyMetaDirty();
     },
-    [storageDeckId],
+    [storageDeckId, cloudSync],
   );
 
   const handleExportJsonBackup = useCallback(async () => {
@@ -1253,6 +1335,10 @@ function SlidesDeckInner({
         );
         mode = replaceConfirm ? 'replace' : 'merge';
       }
+      const prevIds = new Set<number>([
+        ...Object.keys(strokesRef.current).map(Number),
+        ...Object.keys(snippetsRef.current).map(Number),
+      ]);
       const res = await importDeckBackup(storageDeckId, parsed, mode, legacyInkKey);
       undoHistoryRef.current = {};
       redoHistoryRef.current = {};
@@ -1264,6 +1350,21 @@ function SlidesDeckInner({
       setCustomPages(res.customPages);
       snippetsRef.current = res.snippetsBySlide;
       setSnippetsBySlide(res.snippetsBySlide);
+      cloudSync.notifyMetaDirty();
+      const nextIds = new Set<number>([
+        ...Object.keys(res.strokesBySlide).map(Number),
+        ...Object.keys(res.snippetsBySlide).map(Number),
+      ]);
+      for (const id of nextIds) {
+        if (Number.isFinite(id)) cloudSync.notifySlideDirty(id);
+      }
+      if (mode === 'replace') {
+        for (const id of prevIds) {
+          if (Number.isFinite(id) && !nextIds.has(id)) {
+            cloudSync.notifySlideDeleted(id);
+          }
+        }
+      }
       setBackupStatusMsg(
         isEn ? 'Notes restored from backup!' : 'นำเข้าโน้ตจากไฟล์สำรองเรียบร้อยแล้ว',
       );
@@ -1287,6 +1388,10 @@ function SlidesDeckInner({
       ? 'Clear all handwritten annotations in the English version? (Thai version notes are kept separately)'
       : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดในเวอร์ชันภาษาไทยหรือไม่? (ลายมือในเวอร์ชันภาษาอังกฤษจะถูกแยกเก็บและไม่ถูกลบ)';
     if (window.confirm(confirmMsg)) {
+      const removedIds = new Set<number>([
+        ...Object.keys(strokesRef.current).map(Number),
+        ...Object.keys(snippetsRef.current).map(Number),
+      ]);
       undoHistoryRef.current = {};
       redoHistoryRef.current = {};
       setUndoCountBySlide({});
@@ -1297,6 +1402,9 @@ function SlidesDeckInner({
       setSnippetsBySlide({});
       void clearDeckInk(storageDeckId, legacyInkKey);
       void clearDeckSnippets(storageDeckId);
+      for (const id of removedIds) {
+        if (Number.isFinite(id)) cloudSync.notifySlideDeleted(id);
+      }
     }
   };
 
@@ -1333,6 +1441,7 @@ function SlidesDeckInner({
     customPagesRef.current = nextPages;
     setCustomPages(nextPages);
     void saveCustomBlankPages(storageDeckId, nextPages);
+    cloudSync.notifyMetaDirty();
     setSelectTrigger(null);
     setSlideIdx(safeSlideIdx + 1);
   };
@@ -1344,6 +1453,7 @@ function SlidesDeckInner({
     customPagesRef.current = nextPages;
     setCustomPages(nextPages);
     void saveCustomBlankPages(storageDeckId, nextPages);
+    cloudSync.notifyMetaDirty();
   };
 
   const handleDeleteBlankPage = (pageId: number) => {
@@ -1374,6 +1484,7 @@ function SlidesDeckInner({
       setSnippetsBySlide(nextSnipMap);
     }
     void saveSlideSnippets(storageDeckId, pageId, []);
+    cloudSync.notifySlideDeleted(pageId);
     setSelectTrigger(null);
     setSlideIdx((prev) => Math.max(0, Math.min(prev, orderedEntries.length - 2)));
   };
@@ -1792,6 +1903,7 @@ function SlidesDeckInner({
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline">3D Dashboard</span>
             </button>
+            <VersionBadge isEn={isEn} compact tone="light" />
 
             <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[13px] font-semibold">
               <button
@@ -2304,6 +2416,17 @@ function SlidesDeckInner({
                 </div>
               )}
             </div>
+
+            {/* Cloud Sync Status / Google Sign-In */}
+            <CloudSyncButton
+              isEn={isEn}
+              tone="light"
+              compact
+              syncState={cloudSync.syncState}
+              lastSyncedAt={cloudSync.lastSyncedAt}
+              syncError={cloudSync.syncError}
+              onSyncNow={cloudSync.syncNow}
+            />
 
             {/* Fullscreen Toggle Button */}
             <button
@@ -4226,6 +4349,16 @@ function SlidesDeckInner({
           </footer>
         )}
       </div>
+
+      {cloudSync.pendingConflictInfo && (
+        <CloudSyncConflictModal
+          isEn={isEn}
+          conflict={cloudSync.pendingConflictInfo}
+          busy={cloudSync.resolvingConflict}
+          onResolve={(choice) => void cloudSync.resolveConflict(choice)}
+          onSignOutInstead={cloudSync.cancelConflictAndSignOut}
+        />
+      )}
 
       {/* Hidden Print/PDF Export Layout */}
       <SlidePrintView

@@ -297,6 +297,7 @@ export function AnnotationCanvas({
         snap.snappedKind = recognized.kind;
         stroke.points = recognized.points;
         stroke.pressures = undefined;
+        stroke.sharp = true;
         redrawAll();
       }, LINE_SNAP_HOLD_MS);
     },
