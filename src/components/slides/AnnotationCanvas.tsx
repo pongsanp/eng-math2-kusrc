@@ -65,9 +65,10 @@ interface AnnotationCanvasProps {
   onCopySnippets?: (copied: SlideSnippet[]) => void;
 }
 
-const LINE_SNAP_HOLD_MS = 380;
+const LINE_SNAP_HOLD_MS = 280;
+const EARLY_LIFT_CLOSED_SHAPE_PAUSE_MS = 120;
 const LINE_SNAP_STILL_MOUSE_PX = 10;
-const LINE_SNAP_STILL_TOUCH_PEN_PX = 16;
+const LINE_SNAP_STILL_TOUCH_PEN_PX = 24;
 
 const SELECT_RECOLOR_SWATCHES = ['#0f172a', '#2563eb', '#dc2626', '#059669', '#d97706'];
 
@@ -267,6 +268,7 @@ export function AnnotationCanvas({
     startPt: [number, number];
     holdPt: [number, number];
     lastPt: [number, number];
+    holdStartedAt: number;
     pathLenPx: number;
   } | null>(null);
 
@@ -844,13 +846,14 @@ export function AnnotationCanvas({
     activeStrokeRef.current = stroke;
 
     if (!stroke.isEraser) {
-      const stageW = canvas.clientWidth || 1280;
-      const stageBodyH = (canvas.clientHeight || 686) * layout.bodyFrac;
+      const stageW = canvas.clientWidth || rect.width || 1280;
+      const stageBodyH = (canvas.clientHeight || rect.height || 686) * layout.bodyFrac;
       lineSnapRef.current = {
         snapped: false,
         startPt: pt,
         holdPt: pt,
         lastPt: pt,
+        holdStartedAt: performance.now(),
         pathLenPx: 0,
       };
       scheduleLineSnap(stageW, stageBodyH, layout.minNormY);
@@ -1046,6 +1049,7 @@ export function AnnotationCanvas({
       );
       if (holdDriftPx > stillThresholdPx) {
         snap.holdPt = nextPt;
+        snap.holdStartedAt = performance.now();
         scheduleLineSnap(stageW, stageBodyH, layout.minNormY);
       }
     };
@@ -1130,6 +1134,42 @@ export function AnnotationCanvas({
     }
     const canvas = e.currentTarget;
     const layout = getStageLayout(canvas);
+    const snapBeforeLift = lineSnapRef.current;
+    const strokeBeforeLift = activeStrokeRef.current;
+    if (
+      e.type === 'pointerup' &&
+      snapBeforeLift &&
+      !snapBeforeLift.snapped &&
+      strokeBeforeLift &&
+      !strokeBeforeLift.isEraser &&
+      snapShapeMode === 'smart' &&
+      performance.now() - snapBeforeLift.holdStartedAt >= EARLY_LIFT_CLOSED_SHAPE_PAUSE_MS
+    ) {
+      const rect = canvas.getBoundingClientRect();
+      const stageW = canvas.clientWidth || rect.width || 1280;
+      const stageBodyH = (canvas.clientHeight || rect.height || 686) * layout.bodyFrac;
+      const recognized = recognizeHoldSnapShape(
+        strokeBeforeLift.points,
+        stageW,
+        stageBodyH,
+        snapShapeMode,
+        layout.minNormY,
+      );
+      if (
+        recognized &&
+        (recognized.kind === 'circle' ||
+          recognized.kind === 'ellipse' ||
+          recognized.kind === 'triangle' ||
+          recognized.kind === 'rect')
+      ) {
+        snapBeforeLift.snapped = true;
+        snapBeforeLift.snappedKind = recognized.kind;
+        strokeBeforeLift.points = recognized.points;
+        strokeBeforeLift.pressures = undefined;
+        strokeBeforeLift.sharp = true;
+        redrawAll();
+      }
+    }
     clearLineSnapTimer();
     lineSnapRef.current = null;
     activePointerIdRef.current = null;
@@ -1256,7 +1296,6 @@ export function AnnotationCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={finishStroke}
         onPointerCancel={finishStroke}
-        onLostPointerCapture={finishStroke}
         onPointerLeave={handlePointerLeave}
         style={
           drawEnabled

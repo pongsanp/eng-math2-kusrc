@@ -459,7 +459,7 @@ function SlidesDeckInner({
   const [penColor, setPenColor] = useState('#2563eb');
   const [penWidth, setPenWidth] = useState(4);
   const [eraserSize, setEraserSize] = useState(6);
-  const [eraserMode, setEraserMode] = useState<EraserMode>('partial');
+  const [eraserMode, setEraserMode] = useState<EraserMode>('stroke');
   const [toolMode, setToolMode] = useState<AnnotationTool>('pen');
   const [selectionShape, setSelectionShape] = useState<SelectionShape>('lasso');
   const [clipboardStrokes, setClipboardStrokes] = useState<InkStroke[]>([]);
@@ -3782,7 +3782,7 @@ function SlidesDeckInner({
                             <div className="space-y-1.5 pt-2 border-t border-slate-200">
                               <div className="flex items-center gap-1.5 font-bold text-slate-700">
                                 <Shapes className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>{isEn ? 'Hold-to-Snap (~0.5s)' : 'ลากค้าง ~0.5 วิ จัดรูปอัตโนมัติ'}</span>
+                                <span>{isEn ? 'Hold-to-Snap (~0.3s)' : 'ลากค้าง ~0.3 วิ จัดรูปอัตโนมัติ'}</span>
                               </div>
                               <div className="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px]">
                                 {(

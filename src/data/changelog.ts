@@ -12,6 +12,22 @@ export const APP_VERSION: string =
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '1.7.1',
+    date: '2026-11-27',
+    titleTh: 'ปรับ Snap วงกลม/วงรีบน iPad, ยางลบทั้งเส้น & แจ้งเวลา Auto-Sync',
+    titleEn: 'iPad Shape Snap Fix, Stroke Eraser Default & 5s Sync Label',
+    highlightsTh: [
+      'ปรับปรุง Hold-to-Snap บน iPad (Apple Pencil) ให้ลดเวลารอเหลือ ~0.3 วินาที เพิ่มระยะรับแรงสั่นมือบนหน้าจอ และรองรับการหยุดปลายปากกาสั้นๆ ก่อนยกเพื่อจัดเป็นวงกลม/วงรี/สามเหลี่ยม/สี่เหลี่ยม',
+      'ตั้งค่ายางลบเริ่มต้นเป็นแบบ "ลบทั้งเส้น" (Stroke Eraser) สามารถสลับเป็นลบเฉพาะจุดได้ในแถบตัวเลือกปากกา',
+      'แสดงรายละเอียดระยะเวลา Auto-Sync (~5 วินาที) ในหน้าต่างบัญชี Google Sync',
+    ],
+    highlightsEn: [
+      'Improved iPad Apple Pencil shape snap (~0.3s hold threshold, wider screen-space jitter tolerance, and brief pause-before-lift detection for circles, ellipses, triangles, and rectangles).',
+      'Defaulted Eraser tool to Stroke mode (whole-stroke erase).',
+      'Added explicit ~5s Auto-Sync interval indicator in the Cloud Sync menu.',
+    ],
+  },
+  {
     version: '1.7.0',
     date: '2026-11-27',
     titleTh: 'สลับสมุดบันทึกแยก Sec / คาบสอนได้ (ซิงก์ข้ามอุปกรณ์)',

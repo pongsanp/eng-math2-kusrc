@@ -192,8 +192,8 @@ export function CloudSyncButton({
           onClick={() => void signInWithGoogle(isEn)}
           title={
             isEn
-              ? 'Sign in with Google to auto-sync handwritten notes across devices'
-              : 'ล็อกอิน Google เพื่อซิงก์ลายมือและหน้ากระดาษอัตโนมัติข้ามอุปกรณ์'
+              ? 'Sign in with Google to auto-sync handwritten notes (~5s) across devices'
+              : 'ล็อกอิน Google เพื่อซิงก์ลายมือและหน้ากระดาษอัตโนมัติ (~5 วินาที) ข้ามอุปกรณ์'
           }
           className={`inline-flex items-center gap-1.5 rounded-xl border text-xs font-bold transition shrink-0 disabled:opacity-60 ${surfaceCls} ${
             compact ? 'px-2 py-1' : 'px-2.5 py-1.5'
@@ -346,6 +346,12 @@ export function CloudSyncButton({
                   {formattedLastSync}
                 </span>
               )}
+            </div>
+
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug px-1">
+              {isEn
+                ? 'Auto-syncs ~5s after writing (also saved offline in this browser).'
+                : 'ซิงก์อัตโนมัติหลังหยุดเขียน ~5 วินาที (และเก็บสำรองออฟไลน์ในเครื่องนี้ตลอด)'}
             </div>
 
             {syncError && (
