@@ -65,8 +65,9 @@ interface AnnotationCanvasProps {
   onCopySnippets?: (copied: SlideSnippet[]) => void;
 }
 
-const LINE_SNAP_HOLD_MS = 480;
-const LINE_SNAP_STILL_PX = 8;
+const LINE_SNAP_HOLD_MS = 380;
+const LINE_SNAP_STILL_MOUSE_PX = 10;
+const LINE_SNAP_STILL_TOUCH_PEN_PX = 16;
 
 const SELECT_RECOLOR_SWATCHES = ['#0f172a', '#2563eb', '#dc2626', '#059669', '#d97706'];
 
@@ -1027,6 +1028,11 @@ export function AnnotationCanvas({
       return;
     }
 
+    const screenW = rect.width || stageW;
+    const screenBodyH = (rect.height || canvas.clientHeight || 686) * layout.bodyFrac;
+    const stillThresholdPx =
+      e.pointerType === 'mouse' ? LINE_SNAP_STILL_MOUSE_PX : LINE_SNAP_STILL_TOUCH_PEN_PX;
+
     const trackSnapMove = (nextPt: [number, number], prevPt: [number, number]) => {
       if (stroke.isEraser || !snap) return;
       snap.pathLenPx += Math.hypot(
@@ -1035,10 +1041,10 @@ export function AnnotationCanvas({
       );
       snap.lastPt = nextPt;
       const holdDriftPx = Math.hypot(
-        (nextPt[0] - snap.holdPt[0]) * stageW,
-        (nextPt[1] - snap.holdPt[1]) * stageBodyH,
+        (nextPt[0] - snap.holdPt[0]) * screenW,
+        (nextPt[1] - snap.holdPt[1]) * screenBodyH,
       );
-      if (holdDriftPx > LINE_SNAP_STILL_PX) {
+      if (holdDriftPx > stillThresholdPx) {
         snap.holdPt = nextPt;
         scheduleLineSnap(stageW, stageBodyH, layout.minNormY);
       }

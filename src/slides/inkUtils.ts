@@ -877,7 +877,7 @@ export function recognizeHoldSnapShape(
   // Trim slight overshoot past start if user drew ~370-420 degrees around a loop
   const rawDiag = Math.hypot(rawMaxX - rawMinX, rawMaxY - rawMinY);
   let pxPts = rawPx;
-  if (rawPx.length >= 16 && rawDiag >= 34) {
+  if (rawPx.length >= 14 && rawDiag >= 24) {
     let bestIdx = -1;
     let bestDist = Infinity;
     const scanStart = Math.floor(rawPx.length * 0.65);
@@ -891,7 +891,7 @@ export function recognizeHoldSnapShape(
     if (
       bestIdx >= scanStart &&
       bestIdx < rawPx.length - 2 &&
-      bestDist < Math.max(24, rawDiag * 0.16)
+      bestDist < Math.max(24, rawDiag * 0.18)
     ) {
       let trimmedLen = 0;
       for (let i = 1; i <= bestIdx; i++) {
@@ -900,7 +900,7 @@ export function recognizeHoldSnapShape(
           rawPx[i][1] - rawPx[i - 1][1],
         );
       }
-      if (trimmedLen >= Math.max(68, rawDiag * 1.85)) {
+      if (trimmedLen >= Math.max(48, rawDiag * 1.8)) {
         pxPts = rawPx.slice(0, bestIdx + 1);
       }
     }
@@ -929,9 +929,9 @@ export function recognizeHoldSnapShape(
 
   // 1. Closed shape detection (Circle / Ellipse / Triangle / Rectangle)
   if (
-    diag >= 34 &&
-    pathLen >= Math.max(68, diag * 1.85) &&
-    directSpan <= Math.max(54, diag * 0.42)
+    diag >= 24 &&
+    pathLen >= Math.max(48, diag * 1.8) &&
+    directSpan <= Math.max(58, diag * 0.45)
   ) {
     const closedInput: Array<[number, number]> = [...pxPts, pxPts[0]];
     const samples = resampleClosedPolylinePx(closedInput, 96);
