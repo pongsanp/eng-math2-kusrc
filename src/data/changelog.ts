@@ -12,6 +12,20 @@ export const APP_VERSION: string =
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '1.7.2',
+    date: '2026-11-27',
+    titleTh: 'อัปเกรด Kasa Circle Fit สำหรับวาดวงกลม/วงรีบน iPad',
+    titleEn: 'Upgraded Open-Arc Circle & Ellipse Fit on iPad',
+    highlightsTh: [
+      'เพิ่มสมการ Kasa Circle Fit + ตรวจมุมกวาด (Winding Angle >= 225°) ทำให้วาดวงกลมและวงรีบน iPad ติดง่ายแม้ปิดวงไม่สนิทหรือลากเลยจุดเริ่มต้น',
+      'ปรับลดเกณฑ์หยุดปลายปากกาก่อนยกเป็น ~85 ms และป้องกันวงกลมขอบเหลี่ยมเล็กน้อยไม่ให้กลายเป็นสี่เหลี่ยม',
+    ],
+    highlightsEn: [
+      'Added Kasa algebraic circle fit and >= 225° winding-angle loop detection so open-arc or overshot iPad circles and ellipses snap reliably.',
+      'Lowered early-lift pause threshold to ~85 ms and tightened rectangle fill-ratio guard.',
+    ],
+  },
+  {
     version: '1.7.1',
     date: '2026-11-27',
     titleTh: 'ปรับ Snap วงกลม/วงรีบน iPad, ยางลบทั้งเส้น & แจ้งเวลา Auto-Sync',

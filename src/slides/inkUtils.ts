@@ -831,6 +831,74 @@ function buildOrthogonalRectIfClose(
   ];
 }
 
+function computeNetWindingDeg(pts: Array<[number, number]>, cx: number, cy: number): number {
+  if (pts.length < 3) return 0;
+  let totalRad = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const ax = pts[i - 1][0] - cx;
+    const ay = pts[i - 1][1] - cy;
+    const bx = pts[i][0] - cx;
+    const by = pts[i][1] - cy;
+    const cross = ax * by - ay * bx;
+    const dot = ax * bx + ay * by;
+    totalRad += Math.atan2(cross, dot);
+  }
+  return Math.abs((totalRad * 180) / Math.PI);
+}
+
+function fitCircleKasa(
+  pts: Array<[number, number]>,
+): { cx: number; cy: number; r: number; rmsErr: number } | null {
+  const n = pts.length;
+  if (n < 6) return null;
+  let mx = 0;
+  let my = 0;
+  for (const [x, y] of pts) {
+    mx += x;
+    my += y;
+  }
+  mx /= n;
+  my /= n;
+
+  let suu = 0;
+  let suv = 0;
+  let svv = 0;
+  let suz = 0;
+  let svz = 0;
+  for (const [x, y] of pts) {
+    const u = x - mx;
+    const v = y - my;
+    const z = u * u + v * v;
+    suu += u * u;
+    suv += u * v;
+    svv += v * v;
+    suz += u * z;
+    svz += v * z;
+  }
+  const det = 2 * (suu * svv - suv * suv);
+  if (Math.abs(det) < 1e-6) return null;
+  const uc = (suz * svv - svz * suv) / det;
+  const vc = (suu * svz - suv * suz) / det;
+  const cx = mx + uc;
+  const cy = my + vc;
+  let rSqSum = 0;
+  for (const [x, y] of pts) {
+    const dx = x - cx;
+    const dy = y - cy;
+    rSqSum += dx * dx + dy * dy;
+  }
+  const r = Math.sqrt(rSqSum / n);
+  if (!Number.isFinite(r) || r < 8) return null;
+
+  let errSqSum = 0;
+  for (const [x, y] of pts) {
+    const d = Math.hypot(x - cx, y - cy);
+    const diff = d / r - 1;
+    errSqSum += diff * diff;
+  }
+  return { cx, cy, r, rmsErr: Math.sqrt(errSqSum / n) };
+}
+
 /**
  * Recognizes geometric primitives (line, arrow, circle, ellipse, triangle, rectangle)
  * from a single normalized stroke when held still at the end.
@@ -926,12 +994,15 @@ export function recognizeHoldSnapShape(
   const endPx = pxPts[pxPts.length - 1];
   const directSpan = Math.hypot(endPx[0] - startPx[0], endPx[1] - startPx[1]);
   const diag = Math.hypot(maxX - minX, maxY - minY);
+  const bboxCx = (minX + maxX) * 0.5;
+  const bboxCy = (minY + maxY) * 0.5;
+  const windingDeg = computeNetWindingDeg(pxPts, bboxCx, bboxCy);
 
-  // 1. Closed shape detection (Circle / Ellipse / Triangle / Rectangle)
+  // 1. Closed & near-closed shape detection (Circle / Ellipse / Triangle / Rectangle)
   if (
     diag >= 24 &&
-    pathLen >= Math.max(48, diag * 1.8) &&
-    directSpan <= Math.max(58, diag * 0.45)
+    pathLen >= Math.max(48, diag * 1.65) &&
+    (directSpan <= Math.max(58, diag * 0.48) || windingDeg >= 230)
   ) {
     const closedInput: Array<[number, number]> = [...pxPts, pxPts[0]];
     const samples = resampleClosedPolylinePx(closedInput, 96);
@@ -1015,6 +1086,11 @@ export function recognizeHoldSnapShape(
     }
     const rmsRadErr = Math.sqrt(radSqErrSum / samples.length);
 
+    // Open-arc Kasa circle fit (accurately fits incomplete 240-320 deg Apple Pencil circles without chord bias!)
+    const arcSamples = resampleClosedPolylinePx(pxPts, 64);
+    const kasa = fitCircleKasa(arcSamples);
+    const kasaAspect = Math.min(obbW, obbH) / Math.max(obbW, obbH);
+
     // Optimal corner extraction for Triangle & Rectangle
     const { triVerts, triErr, quadVerts, quadErr } = extractOptimalTriAndQuad(
       samples,
@@ -1023,8 +1099,11 @@ export function recognizeHoldSnapShape(
       diag,
     );
 
-    // 1a. Triangle check (only when contour truly has 3 straight edges & low fillRatio)
+    const isMostlyClosedLoop = directSpan <= Math.max(58, diag * 0.45);
+
+    // 1a. Triangle check (only when contour truly closes or nearly closes with 3 straight edges & low fillRatio)
     if (
+      isMostlyClosedLoop &&
       triVerts &&
       triErr < 0.056 &&
       triErr < rmsRadErr * 0.78 &&
@@ -1036,12 +1115,13 @@ export function recognizeHoldSnapShape(
       return { kind: 'triangle', points: tri };
     }
 
-    // 1b. Rectangle / Quad check (beats circle/ellipse when corners & straight edges dominate over smooth ellipse fit)
+    // 1b. Rectangle / Quad check (beats circle/ellipse when corners & straight edges dominate)
     if (
+      isMostlyClosedLoop &&
       quadVerts &&
-      quadErr < 0.055 &&
+      quadErr < 0.054 &&
       quadErr < rmsRadErr * 0.8 &&
-      (fillRatio >= 0.84 || (quadErr < rmsRadErr * 0.6 && fillRatio < 0.68)) &&
+      (fillRatio >= 0.85 || (quadErr < rmsRadErr * 0.58 && fillRatio < 0.66)) &&
       minInteriorAngleDeg(quadVerts) > 25
     ) {
       const snappedQuad = buildOrthogonalRectIfClose(quadVerts, samples, diag);
@@ -1049,8 +1129,25 @@ export function recognizeHoldSnapShape(
       return { kind: 'rect', points: quad };
     }
 
-    // 1c. Circle / Ellipse check (immune to teardrop start/end jitter via PCA + resampling)
-    if (rmsRadErr < 0.19 && isoperimetricQ > 0.52) {
+    // 1c. Circle check via open-arc Kasa fit (resilient to gaps & hand-drawn start/end hooks on iPad)
+    if (
+      kasa &&
+      windingDeg >= 225 &&
+      kasa.rmsErr < 0.165 &&
+      kasa.r <= diag * 0.85 &&
+      kasaAspect >= 0.76
+    ) {
+      const steps = 72;
+      const ring: Array<[number, number]> = [];
+      for (let i = 0; i <= steps; i++) {
+        const phi = (i / steps) * Math.PI * 2;
+        ring.push(toNorm(kasa.cx + Math.cos(phi) * kasa.r, kasa.cy + Math.sin(phi) * kasa.r));
+      }
+      return { kind: 'circle', points: ring };
+    }
+
+    // 1d. Circle / Ellipse check via PCA (supports elongated, tilted, and imperfect ovals)
+    if ((rmsRadErr < 0.24 && isoperimetricQ > 0.36) || (windingDeg >= 235 && rmsRadErr < 0.26)) {
       const aspect = Math.min(aFit, bFit) / Math.max(aFit, bFit);
       const isCircle = aspect >= 0.82;
 

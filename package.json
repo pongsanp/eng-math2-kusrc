@@ -1,7 +1,7 @@
 {
   "name": "eng-math-2-dashboard",
   "private": true,
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Interactive 3D Surfaces Dashboard & Annotated Lecture Slides for 01417168 Engineering Mathematics II",
   "license": "CC-BY-NC-4.0",
   "author": {
