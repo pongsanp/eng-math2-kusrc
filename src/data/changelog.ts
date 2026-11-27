@@ -12,6 +12,20 @@ export const APP_VERSION: string =
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '1.7.3',
+    date: '2026-11-27',
+    titleTh: 'ปุ่มตรวจหาอัปเดต & รีเฟรชแอปจากไอคอน iPad ในคลิกเดียว',
+    titleEn: 'One-Tap In-App Update Check & Force Reload for iPad Home Screen App',
+    highlightsTh: [
+      'เพิ่มระบบเช็ก version.json อัตโนมัติเมื่อเปิดแอป หากมีเวอร์ชันใหม่จะขึ้นจุดสีเขียวข้างเลขเวอร์ชัน',
+      'เพิ่มปุ่ม "ตรวจอัปเดต" และ "รีเฟรชแอป" (Cache-Bust) ในหน้าต่างเลขเวอร์ชัน เพื่อให้แอปที่กดเพิ่มลงหน้าจอโฮม iPad อัปเดตเป็นเวอร์ชันล่าสุดได้ทันทีโดยลายมือเดิมไม่หาย',
+    ],
+    highlightsEn: [
+      'Added automatic version.json update checking with a green indicator on the version badge when a newer build is live.',
+      'Added "Check" and cache-bust "Force Reload" buttons inside the Version modal for iPad Home Screen apps without losing local notes.',
+    ],
+  },
+  {
     version: '1.7.2',
     date: '2026-11-27',
     titleTh: 'อัปเกรด Kasa Circle Fit สำหรับวาดวงกลม/วงรีบน iPad',
