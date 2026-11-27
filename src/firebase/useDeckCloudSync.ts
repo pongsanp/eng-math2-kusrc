@@ -237,7 +237,7 @@ export function useDeckCloudSync({
     debounceTimerRef.current = window.setTimeout(() => {
       debounceTimerRef.current = null;
       void flushPendingSync();
-    }, 2000);
+    }, 5000);
   }, [uid, flushPendingSync]);
 
   const notifySlideDirty = useCallback(

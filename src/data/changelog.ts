@@ -34,13 +34,13 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     titleEn: 'Google Sign-In, Auto-Sync Notes & Version History',
     highlightsTh: [
       'เพิ่มระบบล็อกอินด้วย Google (Firebase Auth) เพื่อซิงก์ลายมือ หน้ากระดาษเปล่า และรูปที่ตัดแปะข้ามอุปกรณ์ (เช่น iPad ↔ PC ↔ Android)',
-      'Auto-Sync ขึ้น Cloud อัตโนมัติหลังหยุดเขียน ~2 วินาที พร้อมเก็บสำรองในเครื่อง (IndexedDB) ให้เขียนออฟไลน์ต่อได้',
+      'Auto-Sync ขึ้น Cloud อัตโนมัติหลังหยุดเขียน ~5 วินาที พร้อมเก็บสำรองในเครื่อง (IndexedDB) ให้เขียนออฟไลน์ต่อได้',
       'ปลอดภัย 100% สำหรับผู้ใช้เดิม: เมื่อล็อกอินครั้งแรก ระบบจะอัปโหลด/ผสานลายมือเดิมในเครื่องขึ้น Cloud ให้โดยไม่เขียนทับหรือทำให้โน้ตหาย',
       'เพิ่มป้ายเวอร์ชัน (v1.6.0) และหน้าสรุปอัปเดต เพื่อเช็กได้ทันทีว่าบน iPad/เบราว์เซอร์โหลดเวอร์ชันล่าสุดแล้ว',
     ],
     highlightsEn: [
       'Added Google Sign-In (Firebase Auth) to sync handwriting strokes, custom blank pages, and snippets across iPad, PC, and Android.',
-      'Automatic debounced Cloud Sync (~2s after writing) backed by local IndexedDB offline cache.',
+      'Automatic debounced Cloud Sync (~5s after writing) backed by local IndexedDB offline cache.',
       'Zero data loss migration: first sign-in preserves existing local notes and offers Merge / Replace options if Cloud notes already exist.',
       'Added clickable app version badge (v1.6.0) with bilingual release notes.',
     ],
