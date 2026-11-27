@@ -99,8 +99,16 @@ import { SlidePrintView } from './SlidePrintView';
 import { VersionBadge } from '../VersionBadge';
 import { CloudSyncButton } from '../CloudSyncButton';
 import { CloudSyncConflictModal } from '../CloudSyncConflictModal';
+import { NotebookSwitcher } from './NotebookSwitcher';
 import { useDeckCloudSync } from '../../firebase/useDeckCloudSync';
+import { useNotebooksSync } from '../../firebase/useNotebooksSync';
 import type { DeckDataSnapshot } from '../../firebase/syncService';
+import {
+  DEFAULT_NOTEBOOK_ID,
+  getDefaultNotebookName,
+  getNotebookStorageDeckId,
+  type SlideNotebook,
+} from '../../slides/notebookStorage';
 
 interface SlidesDeckProps {
   onBackToDashboard: () => void;
@@ -109,19 +117,21 @@ interface SlidesDeckProps {
   onChangeLang: (lang: SlideLang) => void;
 }
 
+interface SlidesDeckInnerProps extends SlidesDeckProps {
+  storageDeckId: string;
+  legacyInkKey?: string;
+  notebooks: SlideNotebook[];
+  activeNotebook: SlideNotebook;
+  onSelectNotebook: (id: string) => void;
+  onCreateNotebook: (name: string) => void;
+  onRenameNotebook: (id: string, name: string) => void;
+  onDeleteNotebook: (id: string) => void;
+}
+
 type TextScale = 'normal' | 'large' | 'xlarge';
 
-const DECK_ID = 'ch1';
 const LEGACY_INK_STORAGE_KEY = 'eng_math_2_ch1_ink_v1';
 const COMPACT_BARS_STORAGE_KEY = 'eng_math_2_slides_compact_bars';
-
-function getStorageDeckId(lang: SlideLang): string {
-  return lang === 'en' ? `${DECK_ID}_en` : DECK_ID;
-}
-
-function getLegacyInkKey(lang: SlideLang): string | undefined {
-  return lang === 'th' ? LEGACY_INK_STORAGE_KEY : undefined;
-}
 
 function getLastSlideEntryStorageKey(storageDeckId: string): string {
   return `eng_math_2_${storageDeckId}_last_entry_id`;
@@ -318,9 +328,33 @@ function readSavedSlideEntryId(storageDeckId: string): number | null {
 }
 
 export function SlidesDeck(props: SlidesDeckProps) {
-  const storageDeckId = getStorageDeckId(props.lang);
-  // Keying by language deck cleanly isolates strokes, inserted blank pages, undo stack, and last page
-  return <SlidesDeckInner key={storageDeckId} {...props} />;
+  const isEn = props.lang === 'en';
+  const nbSync = useNotebooksSync(isEn);
+  const storageDeckId = getNotebookStorageDeckId(props.lang, nbSync.activeNotebookId);
+  const legacyInkKey =
+    props.lang === 'th' && nbSync.activeNotebookId === DEFAULT_NOTEBOOK_ID
+      ? LEGACY_INK_STORAGE_KEY
+      : undefined;
+
+  // Keying by storageDeckId (language + active notebook) cleanly isolates strokes, blank pages, undo stack, and sync
+  return (
+    <SlidesDeckInner
+      key={storageDeckId}
+      {...props}
+      storageDeckId={storageDeckId}
+      legacyInkKey={legacyInkKey}
+      notebooks={nbSync.notebooks}
+      activeNotebook={nbSync.activeNotebook}
+      onSelectNotebook={nbSync.selectNotebook}
+      onCreateNotebook={(name) => {
+        void nbSync.createNotebook(name);
+      }}
+      onRenameNotebook={nbSync.renameNotebook}
+      onDeleteNotebook={(id) => {
+        void nbSync.deleteNotebook(id);
+      }}
+    />
+  );
 }
 
 function SlidesDeckInner({
@@ -328,10 +362,16 @@ function SlidesDeckInner({
   onOpenDashboardTarget,
   lang,
   onChangeLang,
-}: SlidesDeckProps) {
+  storageDeckId,
+  legacyInkKey,
+  notebooks,
+  activeNotebook,
+  onSelectNotebook,
+  onCreateNotebook,
+  onRenameNotebook,
+  onDeleteNotebook,
+}: SlidesDeckInnerProps) {
   const isEn = lang === 'en';
-  const storageDeckId = getStorageDeckId(lang);
-  const legacyInkKey = getLegacyInkKey(lang);
   const lastEntryStorageKey = getLastSlideEntryStorageKey(storageDeckId);
   const pendingRestoreIdRef = useRef<number | null>(readSavedSlideEntryId(storageDeckId));
   const hydratedRef = useRef(false);
@@ -1384,9 +1424,13 @@ function SlidesDeckInner({
   };
 
   const handleClearAllInk = () => {
+    const nbLabel =
+      activeNotebook.id === DEFAULT_NOTEBOOK_ID && activeNotebook.updatedAt === 0
+        ? getDefaultNotebookName(isEn)
+        : activeNotebook.name;
     const confirmMsg = isEn
-      ? 'Clear all handwritten annotations in the English version? (Thai version notes are kept separately)'
-      : 'ต้องการล้างลายมือที่เขียนไว้ทั้งหมดในเวอร์ชันภาษาไทยหรือไม่? (ลายมือในเวอร์ชันภาษาอังกฤษจะถูกแยกเก็บและไม่ถูกลบ)';
+      ? `Clear all handwritten annotations in notebook "${nbLabel}" (English)? (Other notebooks & Thai version are kept separately)`
+      : `ต้องการล้างลายมือที่เขียนไว้ทั้งหมดในสมุด "${nbLabel}" (ภาษาไทย) หรือไม่? (สมุด Sec อื่นและเวอร์ชันภาษาอังกฤษจะไม่ถูกลบ)`;
     if (window.confirm(confirmMsg)) {
       const removedIds = new Set<number>([
         ...Object.keys(strokesRef.current).map(Number),
@@ -1897,13 +1941,31 @@ function SlidesDeckInner({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onBackToDashboard}
+              onClick={() => {
+                void cloudSync.flushPendingSync();
+                onBackToDashboard();
+              }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[14px] sm:text-[15px] font-bold text-slate-700 transition"
             >
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline">3D Dashboard</span>
             </button>
             <VersionBadge isEn={isEn} compact tone="light" />
+            <NotebookSwitcher
+              isEn={isEn}
+              notebooks={notebooks}
+              activeNotebook={activeNotebook}
+              onSelectNotebook={(id) => {
+                void cloudSync.flushPendingSync();
+                onSelectNotebook(id);
+              }}
+              onCreateNotebook={(name) => {
+                void cloudSync.flushPendingSync();
+                onCreateNotebook(name);
+              }}
+              onRenameNotebook={onRenameNotebook}
+              onDeleteNotebook={onDeleteNotebook}
+            />
 
             <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl text-[13px] font-semibold">
               <button

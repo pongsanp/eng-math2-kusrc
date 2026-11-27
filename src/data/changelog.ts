@@ -12,6 +12,22 @@ export const APP_VERSION: string =
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: '1.7.0',
+    date: '2026-11-27',
+    titleTh: 'สลับสมุดบันทึกแยก Sec / คาบสอนได้ (ซิงก์ข้ามอุปกรณ์)',
+    titleEn: 'Multi-Section Notebook Switcher with Cloud Sync',
+    highlightsTh: [
+      'เพิ่มปุ่มสลับสมุดบันทึกบนแถบหัวสไลด์ (เช่น สมุดหลัก, Sec 1, Sec 2) แยกเก็บลายมือและหน้ากระดาษเปล่าคนละชุด',
+      'รองรับการสร้าง เปลี่ยนชื่อ และลบสมุดบันทึก พร้อมซิงก์รายชื่อสมุดและลายมือแต่ละ Sec ขึ้น Cloud อัตโนมัติ',
+      'ข้อมูลลายมือเดิมของผู้ใช้ทั้งหมดถูกเก็บไว้อย่างปลอดภัยใน "สมุดหลัก"',
+    ],
+    highlightsEn: [
+      'Added Section/Notebook switcher in the Slides top bar to keep separate handwriting & custom blank pages per class section.',
+      'Supports creating, renaming, and deleting notebooks with automatic Firestore sync across devices.',
+      'All existing notes remain preserved safely inside "Main Notebook".',
+    ],
+  },
+  {
     version: '1.6.0',
     date: '2026-11-27',
     titleTh: 'ล็อกอิน Google + ซิงก์ลายมืออัตโนมัติ & เลขเวอร์ชัน',

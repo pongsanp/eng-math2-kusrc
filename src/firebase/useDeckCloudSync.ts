@@ -619,6 +619,7 @@ export function useDeckCloudSync({
     notifySlideDirty,
     notifySlideDeleted,
     notifyMetaDirty,
+    flushPendingSync,
     syncNow,
     resolveConflict,
     cancelConflictAndSignOut,

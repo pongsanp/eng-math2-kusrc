@@ -6,6 +6,17 @@ service cloud.firestore {
     // Assumed Data Model (Cloud Firestore Standard `(default)` database)
     // ===============================================================
     //
+    // Collection: users/{userId}/meta
+    // Document ID: "notebooks"
+    // Fields:
+    //   - notebooks: list<SlideNotebook> (required, 1..30 items)
+    //       Each item: { id (string 1..24 matching ^[a-zA-Z0-9_-]{1,24}$),
+    //                    name (string 1..80), createdAt (number >= 0),
+    //                    updatedAt (number >= 0) }
+    //   - deletedIds: list<string> (required, 0..100 items, each matching ^[a-zA-Z0-9_-]{1,24}$)
+    //   - updatedAt: number (required, >= 0) - client epoch ms timestamp
+    //   - deviceId: string (required, 1..128 chars) - sync origin device ID
+    //
     // Collection: users/{userId}/decks
     // Document ID: deckId (e.g., "ch1", "ch1_en"; matches ^[a-zA-Z0-9_-]{1,64}$)
     // Fields:
@@ -47,18 +58,6 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Verify UID hasn't been tampered with on create (if a uid field is used)
-    function uidUnchanged() {
-      return !('uid' in request.resource.data) ||
-        request.resource.data.uid == request.auth.uid;
-    }
-
-    // Ensure uid field is not modified on update (if a uid field is used)
-    function uidNotModified() {
-      return !('uid' in request.resource.data) ||
-        request.resource.data.uid == resource.data.uid;
-    }
-
     // Validate required fields exist
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
@@ -89,6 +88,11 @@ service cloud.firestore {
     // Validate slide document ID format (positive or negative integer string, e.g., "1", "-1")
     function isValidSlideIdDocKey(slideId) {
       return slideId is string && slideId.matches('^(0|-?[1-9][0-9]{0,11})$');
+    }
+
+    // Validate notebook ID format (e.g., "default", "s1234abcd")
+    function isValidNotebookId(notebookId) {
+      return notebookId is string && notebookId.matches('^[a-zA-Z0-9_-]{1,24}$');
     }
 
     // ===============================================================
@@ -157,9 +161,38 @@ service cloud.firestore {
         validStringLength('deviceId', 1, 128);
     }
 
+    function isValidNotebookEntry(nb) {
+      return nb is map &&
+        nb.keys().hasAll(['id', 'name', 'createdAt', 'updatedAt']) &&
+        nb.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt']) &&
+        isValidNotebookId(nb.id) &&
+        nb.name is string && nb.name.size() >= 1 && nb.name.size() <= 80 &&
+        nb.createdAt is number && nb.createdAt >= 0 &&
+        nb.updatedAt is number && nb.updatedAt >= 0;
+    }
+
+    function isValidNotebooksMeta(data) {
+      return hasOnlyAllowedFields(['notebooks', 'deletedIds', 'updatedAt', 'deviceId']) &&
+        hasRequiredFields(['notebooks', 'deletedIds', 'updatedAt', 'deviceId']) &&
+        data.notebooks is list &&
+        data.notebooks.size() >= 1 &&
+        data.notebooks.size() <= 30 &&
+        isValidNotebookEntry(data.notebooks[0]) &&
+        isValidList(data.deletedIds, 100) &&
+        (data.deletedIds.size() == 0 || isValidNotebookId(data.deletedIds[0])) &&
+        data.updatedAt is number && data.updatedAt >= 0 &&
+        validStringLength('deviceId', 1, 128);
+    }
+
     // ===============================================================
     // Collection Rules
     // ===============================================================
+
+    match /users/{userId}/meta/notebooks {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidNotebooksMeta(request.resource.data);
+      allow update: if isOwner(userId) && isValidNotebooksMeta(request.resource.data);
+    }
 
     match /users/{userId}/decks/{deckId} {
       allow read: if isOwner(userId);
